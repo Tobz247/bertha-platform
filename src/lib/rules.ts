@@ -143,3 +143,87 @@ export function addDays(d: Date, n: number): Date {
 export function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
+
+/* ---------------- prices ---------------- */
+
+/** Matches the same product across buyers and suppliers: case, spacing and plural "s" ignored. */
+export function priceKey(product: string, unit: string): string {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const singular = (w: string) => w.replace(/(?<=[a-z]{2})oes$/, "o").replace(/(?<=[a-z]{3})ies$/, "y").replace(/(?<=[a-z]{2}[^s])s$/, "");
+  return `${norm(product).split(" ").map(singular).join(" ")}|${norm(unit)}`;
+}
+
+export function median(nums: number[]): number | null {
+  if (nums.length === 0) return null;
+  const s = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+}
+
+/** Percentage difference of `price` from `ref`, rounded to a whole number. */
+export function pctDiff(price: number, ref: number): number {
+  if (ref <= 0) return 0;
+  return Math.round(((price - ref) / ref) * 100);
+}
+
+export const PRICE_ALERT_PCT = 10;
+
+/**
+ * Flags a price that is well above what the buyer last paid, or (if they've never bought it)
+ * above the going rate on Bertha. Returns null when the price looks normal.
+ */
+export function priceFlag(
+  price: number,
+  ref: { lastPaid?: number | null; market?: number | null },
+  threshold = PRICE_ALERT_PCT,
+): { pct: number; against: "last" | "market"; ref: number } | null {
+  const base = ref.lastPaid ?? ref.market ?? null;
+  if (base == null || base <= 0) return null;
+  const pct = pctDiff(price, base);
+  return pct > threshold ? { pct, against: ref.lastPaid != null ? "last" : "market", ref: base } : null;
+}
+
+/* ---------------- recipes ---------------- */
+
+export type CostedIngredient = { quantity: number; unitPrice: number | null };
+
+/** Cost of one batch and one portion. Ingredients with no known price are counted in `missing`. */
+export function recipeCost(ingredients: CostedIngredient[], portions: number) {
+  const batch = ingredients.reduce((s, i) => s + (i.unitPrice == null ? 0 : i.quantity * i.unitPrice), 0);
+  const p = portions > 0 ? portions : 1;
+  return {
+    batch: Math.round(batch),
+    perPortion: Math.round(batch / p),
+    missing: ingredients.filter((i) => i.unitPrice == null).length,
+  };
+}
+
+/** Food cost as a percentage of the menu price (whole number), or null with no price. */
+export function foodCostPct(costPerPortion: number, menuPrice: number): number | null {
+  if (!(menuPrice > 0)) return null;
+  return Math.round((costPerPortion / menuPrice) * 100);
+}
+
+/** Above this food cost %, a dish is flagged as eating into margin. */
+export const FOOD_COST_TARGET = 35;
+
+/** How much of each ingredient a number of portions sold takes out of stock. */
+export function dishUsage<T extends { itemId: string; quantity: number }>(ingredients: T[], sold: number, portions: number) {
+  const p = portions > 0 ? portions : 1;
+  return ingredients.map((i) => ({ itemId: i.itemId, quantity: round3((i.quantity * sold) / p) }));
+}
+
+/**
+ * Where stock went over a period (all quantities positive): used by dishes sold (expected),
+ * used by hand, wasted, and lost or found in counts. `unexplained` is count shortfall.
+ */
+export function usageBreakdown(movements: { type: string; quantity: number }[]) {
+  const out = { sold: 0, used: 0, wasted: 0, unexplained: 0 };
+  for (const m of movements) {
+    if (m.type === "SOLD") out.sold += -m.quantity;
+    else if (m.type === "USED") out.used += -m.quantity;
+    else if (m.type === "WASTED") out.wasted += -m.quantity;
+    else if (m.type === "COUNT_ADJUST") out.unexplained += -m.quantity;
+  }
+  return { sold: round3(out.sold), used: round3(out.used), wasted: round3(out.wasted), unexplained: round3(out.unexplained) };
+}

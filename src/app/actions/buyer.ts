@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
 import { parseDateInput, poNo, rfqNo } from "@/lib/format";
 import { notify } from "@/lib/notify";
-import { addDays, needsApproval, orderTotal, round3, startOfDay, takeFromBatches } from "@/lib/rules";
+import { addDays, dishUsage, needsApproval, orderTotal, round3, startOfDay, takeFromBatches } from "@/lib/rules";
 
 const LOCATIONS: StorageLocation[] = ["DRY_STORE", "COLD_ROOM", "FREEZER", "OTHER"];
 
@@ -413,4 +413,162 @@ export async function addTeamMember(fd: FormData) {
     data: { name, email, phone: str(fd, "phone") || null, role, businessId: business.id, passwordHash: await bcrypt.hash(password, 10) },
   });
   back("/settings", "ok", `${name} can now sign in with ${email}.`);
+}
+
+/* ---------------- ordering from a price list ---------------- */
+
+export async function placePriceListOrder(fd: FormData) {
+  const { user, business } = await requireBuyer();
+  const supplierId = str(fd, "supplierId");
+  const path = `/suppliers/${supplierId}`;
+  const supplier = await db.business.findFirst({
+    where: { id: supplierId, type: "SUPPLIER", verification: "VERIFIED" },
+    include: { catalogue: { where: { available: true } } },
+  });
+  if (!supplier) back("/suppliers", "error", "That supplier isn't taking orders on Bertha.");
+
+  const lines = supplier.catalogue
+    .map((c) => ({ c, quantity: num(fd, `q_${c.id}`) }))
+    .filter((x) => x.quantity > 0);
+  if (lines.length === 0) back(path, "error", "Enter a quantity for at least one item.");
+  const under = lines.find((x) => x.c.minQty > 0 && x.quantity < x.c.minQty);
+  if (under) back(path, "error", `${supplier.name} sells ${under.c.name} in at least ${under.c.minQty} ${under.c.unit}.`);
+  const deliveryDate = str(fd, "deliveryDate");
+  if (!deliveryDate) back(path, "error", "Choose a delivery date.");
+  const when = parseDateInput(deliveryDate);
+  if (startOfDay(when) < startOfDay(new Date())) back(path, "error", "The delivery date can't be in the past.");
+
+  const orderLines = lines.map((x, i) => ({ product: x.c.name, unit: x.c.unit, quantity: x.quantity, unitPrice: x.c.price, position: i }));
+  const goods = orderTotal(orderLines);
+  if (supplier.minOrderValue && goods < supplier.minOrderValue) {
+    back(path, "error", `The smallest order ${supplier.name} takes is ₦${supplier.minOrderValue.toLocaleString("en-NG")}. This one comes to ₦${goods.toLocaleString("en-NG")}.`);
+  }
+  const total = goods + supplier.deliveryFee;
+  const approval = needsApproval(total, business.approvalLimit);
+  const terms = Math.max(0, Math.round(num(fd, "paymentTermsDays") || 0));
+  const note = str(fd, "note");
+
+  const order = await db.purchaseOrder.create({
+    data: {
+      buyerId: business.id,
+      supplierId: supplier.id,
+      source: "PRICE_LIST",
+      status: approval ? "AWAITING_APPROVAL" : "AWAITING_SUPPLIER",
+      paymentTermsDays: terms,
+      deliveryFee: supplier.deliveryFee,
+      deliveryDate: when,
+      deliveryAddress: str(fd, "deliveryAddress") || business.address,
+      createdById: user.id,
+      lines: { create: orderLines },
+      events: {
+        create: [
+          { actorId: user.id, message: `Ordered from ${supplier.name}'s price list${note ? `. Note: ${note}` : ""}` },
+          ...(approval ? [{ actorId: user.id, message: "Sent for manager approval (over the approval limit)" }] : []),
+        ],
+      },
+    },
+  });
+  if (!approval) await notify(supplier.id, `New order ${poNo(order.number)} from ${business.name}`);
+  revalidatePath("/", "layout");
+  redirect(`/orders/${order.id}?ok=${encodeURIComponent(approval ? "Order sent to a manager for approval." : `Order sent to ${supplier.name}.`)}`);
+}
+
+/* ---------------- recipes ---------------- */
+
+async function readRecipeForm(fd: FormData, buyerId: string, path: string) {
+  const name = str(fd, "name");
+  const menuPrice = Math.round(num(fd, "menuPrice"));
+  const portions = num(fd, "portions") || 1;
+  if (!name) back(path, "error", "Give the dish a name.");
+  if (!(menuPrice > 0)) back(path, "error", "Enter the menu price in Naira.");
+  if (!(portions > 0)) back(path, "error", "Portions must be above 0.");
+  const ids = fd.getAll("itemId").map(String);
+  const qtys = fd.getAll("quantity").map((v) => Number(String(v).replace(/,/g, "")));
+  const merged = new Map<string, number>();
+  ids.forEach((id, i) => {
+    if (id && qtys[i] > 0) merged.set(id, round3((merged.get(id) ?? 0) + qtys[i]));
+  });
+  if (merged.size === 0) back(path, "error", "Add at least one ingredient with an amount.");
+  const owned = await db.stockItem.count({ where: { buyerId, id: { in: [...merged.keys()] } } });
+  if (owned !== merged.size) back(path, "error", "One of those ingredients wasn't found in your stock.");
+  return {
+    name,
+    menuPrice,
+    portions,
+    notes: str(fd, "notes") || null,
+    ingredients: [...merged].map(([itemId, quantity]) => ({ itemId, quantity })),
+  };
+}
+
+export async function saveRecipe(fd: FormData) {
+  const { business } = await requireBuyer();
+  const id = str(fd, "recipeId");
+  const path = id ? `/recipes/${id}` : "/recipes/new";
+  const r = await readRecipeForm(fd, business.id, path);
+  const clash = await db.recipe.findUnique({ where: { buyerId_name: { buyerId: business.id, name: r.name } } });
+  if (clash && clash.id !== id) back(path, "error", "You already have a dish with that name.");
+  const data = { name: r.name, menuPrice: r.menuPrice, portions: r.portions, notes: r.notes };
+  let recipeId = id;
+  if (id) {
+    const own = await db.recipe.findFirst({ where: { id, buyerId: business.id } });
+    if (!own) back("/recipes", "error", "That dish wasn't found.");
+    await db.$transaction([
+      db.recipeIngredient.deleteMany({ where: { recipeId: id } }),
+      db.recipe.update({ where: { id }, data: { ...data, ingredients: { create: r.ingredients } } }),
+    ]);
+  } else {
+    recipeId = (await db.recipe.create({ data: { ...data, buyerId: business.id, ingredients: { create: r.ingredients } } })).id;
+  }
+  revalidatePath("/recipes");
+  redirect(`/recipes/${recipeId}?ok=${encodeURIComponent(id ? "Dish saved." : "Dish added.")}`);
+}
+
+export async function deleteRecipe(fd: FormData) {
+  const { business } = await requireBuyer();
+  const id = str(fd, "recipeId");
+  const own = await db.recipe.findFirst({ where: { id, buyerId: business.id } });
+  if (!own) back("/recipes", "error", "That dish wasn't found.");
+  await db.recipe.delete({ where: { id } });
+  redirect(`/recipes?ok=${encodeURIComponent(`${own.name} removed.`)}`);
+}
+
+export async function recordDishSales(fd: FormData) {
+  const { user, business } = await requireBuyer();
+  const path = "/recipes";
+  const recipes = await db.recipe.findMany({ where: { buyerId: business.id }, include: { ingredients: true } });
+  const sold = recipes.map((r) => ({ r, n: Math.round(num(fd, `sold_${r.id}`) || 0) })).filter((x) => x.n > 0);
+  if (sold.length === 0) back(path, "error", "Enter how many of at least one dish were sold.");
+  const soldOnRaw = str(fd, "soldOn");
+  const soldOn = soldOnRaw ? parseDateInput(soldOnRaw) : new Date();
+
+  // Total ingredient usage across all dishes sold, per stock item.
+  const need = new Map<string, number>();
+  for (const { r, n } of sold) {
+    for (const u of dishUsage(r.ingredients, n, r.portions)) need.set(u.itemId, round3((need.get(u.itemId) ?? 0) + u.quantity));
+  }
+  const items = await db.stockItem.findMany({ where: { id: { in: [...need.keys()] }, buyerId: business.id }, include: { batches: true } });
+  const short: string[] = [];
+  const label = sold.map(({ r, n }) => `${n} × ${r.name}`).join(", ");
+
+  await db.$transaction(async (tx) => {
+    for (const { r, n } of sold) await tx.dishSale.create({ data: { recipeId: r.id, quantity: n, soldOn, userId: user.id } });
+    for (const item of items) {
+      const want = need.get(item.id)!;
+      const { updates, shortfall } = takeFromBatches(item.batches, want);
+      for (const u of updates) await tx.stockBatch.update({ where: { id: u.id }, data: { quantity: u.quantity } });
+      const taken = round3(want - shortfall);
+      if (shortfall > 0) short.push(item.name);
+      await tx.stockMovement.create({
+        data: { itemId: item.id, type: "SOLD", quantity: -taken, reason: `Dishes sold: ${label}`.slice(0, 190), userId: user.id },
+      });
+    }
+  });
+  revalidatePath("/stock");
+  back(
+    path,
+    "ok",
+    short.length
+      ? `Sales saved, but the records show too little ${short.join(", ")} for them. Count those items to put stock right.`
+      : `Sales saved. Ingredients for ${label} taken out of stock.`,
+  );
 }

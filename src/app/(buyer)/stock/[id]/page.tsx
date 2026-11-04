@@ -10,7 +10,7 @@ import { expiringBatches, isLow, stockOnHand } from "@/lib/rules";
 
 export const metadata = { title: "Stock item" };
 
-const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count" };
+const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count", SOLD: "Dishes sold" };
 
 export default async function StockItemPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);

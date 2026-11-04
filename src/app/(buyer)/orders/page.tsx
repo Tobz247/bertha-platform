@@ -36,7 +36,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<R
     <>
       <PageHead
         title={owedOnly ? "Orders to pay" : "Orders"}
-        eyebrow={owedOnly ? <Link href="/orders">Show all orders</Link> : "Purchase orders raised from your requests"}
+        eyebrow={owedOnly ? <Link href="/orders">Show all orders</Link> : "Purchase orders from your quotes and price-list orders"}
       />
       {shown.length === 0 ? <Empty>{owedOnly ? "Nothing owed to suppliers." : "No orders yet. Award a quote to raise one."}</Empty> : null}
       {GROUPS.map(([label, statuses]) => {

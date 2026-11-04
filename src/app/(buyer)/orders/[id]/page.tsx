@@ -25,7 +25,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     <>
       <PageHead
         title={o.supplier.name}
-        eyebrow={<><span className="mono">{poNo(o.number)}</span> · raised {day(o.createdAt)} by {o.createdBy.name}{o.request ? <> · from <Link href={`/requests/${o.request.id}`}>{rfqNo(o.request.number)}</Link></> : null}</>}
+        eyebrow={<><span className="mono">{poNo(o.number)}</span> · raised {day(o.createdAt)} by {o.createdBy.name}{o.request ? <> · from <Link href={`/requests/${o.request.id}`}>{rfqNo(o.request.number)}</Link></> : o.source === "PRICE_LIST" ? <> · from <Link href={`/suppliers/${o.supplierId}`}>price list</Link></> : null}</>}
         backHref="/orders"
         backLabel="Orders"
         action={<div className="badges"><OrderStatusPill status={o.status} />{pl ? <Pill tone={pl.tone}>{pl.label}</Pill> : null}</div>}
@@ -55,7 +55,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
             )
           ) : null}
           {o.status === "NOT_APPROVED" ? <div className="alert error">Not approved{o.approvedBy ? ` by ${o.approvedBy.name}` : ""}.{o.decisionNote ? ` “${o.decisionNote}”` : ""}</div> : null}
-          {o.status === "DECLINED" ? <div className="alert error">The supplier declined this order.{o.decisionNote ? ` “${o.decisionNote}”` : ""} Go back to the request to choose another quote, or create a new request.</div> : null}
+          {o.status === "DECLINED" ? <div className="alert error">The supplier declined this order.{o.decisionNote ? ` “${o.decisionNote}”` : ""} {o.request ? "Go back to the request to choose another quote, or create a new request." : "Try another supplier, or ask for quotes."}</div> : null}
 
           {canReceive ? (
             <form action={receiveOrder} className="card stack" id="receive">

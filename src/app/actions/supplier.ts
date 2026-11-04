@@ -160,3 +160,55 @@ export async function addCategory(fd: FormData) {
   await db.category.create({ data: { name, units: units || "kg" } });
   back("/admin/categories", "ok", "Category added.");
 }
+
+/* ---------------- price list ---------------- */
+
+export async function addCatalogItem(fd: FormData) {
+  const { business } = await requireSupplier();
+  const path = "/supplier/price-list";
+  const name = str(fd, "name");
+  const unit = str(fd, "unit");
+  const price = Math.round(num(fd, "price"));
+  const categoryId = str(fd, "categoryId") || null;
+  if (!name || !unit) back(path, "error", "Give the item a name and a unit.");
+  if (!(price > 0)) back(path, "error", "Enter a price in Naira.");
+  if (await db.catalogItem.findUnique({ where: { supplierId_name_unit: { supplierId: business.id, name, unit } } })) {
+    back(path, "error", "That item is already on your list. Change its price below.");
+  }
+  await db.catalogItem.create({
+    data: { supplierId: business.id, name, unit, price, categoryId, minQty: Math.max(0, num(fd, "minQty") || 0) },
+  });
+  back(path, "ok", `${name} added to your price list.`);
+}
+
+export async function updateCatalogItem(fd: FormData) {
+  const { business } = await requireSupplier();
+  const path = "/supplier/price-list";
+  const id = str(fd, "itemId");
+  const item = await db.catalogItem.findFirst({ where: { id, supplierId: business.id } });
+  if (!item) back(path, "error", "That item wasn't found.");
+  if (str(fd, "remove") === "1") {
+    await db.catalogItem.delete({ where: { id } });
+    back(path, "ok", `${item.name} removed.`);
+  }
+  const price = Math.round(num(fd, "price"));
+  if (!(price > 0)) back(path, "error", "Enter a price in Naira.");
+  await db.catalogItem.update({
+    where: { id },
+    data: { price, available: str(fd, "available") === "on", minQty: Math.max(0, num(fd, "minQty") || 0) },
+  });
+  back(path, "ok", `${item.name} updated.`);
+}
+
+export async function updateOrderTerms(fd: FormData) {
+  const { business } = await requireSupplier();
+  const min = str(fd, "minOrderValue");
+  await db.business.update({
+    where: { id: business.id },
+    data: {
+      deliveryFee: Math.max(0, Math.round(num(fd, "deliveryFee") || 0)),
+      minOrderValue: min === "" ? null : Math.max(0, Math.round(num(fd, "minOrderValue") || 0)),
+    },
+  });
+  back("/supplier/price-list", "ok", "Delivery terms saved.");
+}

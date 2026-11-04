@@ -11,9 +11,12 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
   const items = [
     { href: "/dashboard", label: "Home" },
     { href: "/requests", label: "Requests", count: quotesWaiting },
+    { href: "/suppliers", label: "Suppliers" },
     { href: "/orders", label: "Orders" },
     ...(canApprove(user) ? [{ href: "/approvals", label: "Approvals", count: approvals }] : []),
     { href: "/stock", label: "Stock" },
+    { href: "/recipes", label: "Recipes" },
+    { href: "/prices", label: "Prices" },
     { href: "/settings", label: "Settings" },
     ...(user.isPlatformAdmin ? [{ href: "/admin", label: "Platform admin" }] : []),
   ];

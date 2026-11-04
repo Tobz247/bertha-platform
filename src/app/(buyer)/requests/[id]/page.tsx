@@ -7,7 +7,8 @@ import { requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, naira, poNo, qty, rfqNo } from "@/lib/format";
 import { supplierRatings } from "@/lib/orders";
-import { needsApproval, orderTotal, quoteBadges } from "@/lib/rules";
+import { lastPaidPrices, marketPrices } from "@/lib/prices";
+import { needsApproval, orderTotal, priceFlag, priceKey, quoteBadges } from "@/lib/rules";
 
 export const metadata = { title: "Request" };
 
@@ -34,12 +35,21 @@ export default async function RequestPage({
   if (!req) notFound();
 
   const live = req.quotes.filter((q) => q.status !== "WITHDRAWN");
-  const ratings = await supplierRatings(live.map((q) => q.supplierId));
+  const [ratings, lastPaid, market] = await Promise.all([
+    supplierRatings(live.map((q) => q.supplierId)),
+    lastPaidPrices(business.id),
+    marketPrices(),
+  ]);
+  const flagFor = (l: { product: string; unit: string }, p: number) => {
+    const k = priceKey(l.product, l.unit);
+    return priceFlag(p, { lastPaid: lastPaid.get(k) ?? null, market: market.get(k)?.median ?? null });
+  };
   const rows = live.map((q) => {
     const price = new Map(q.lines.map((l) => [l.requestLineId, l.unitPrice]));
     const quoted = req.lines.filter((l) => price.has(l.id));
     const total = orderTotal(quoted.map((l) => ({ quantity: l.quantity, unitPrice: price.get(l.id)! })), q.deliveryFee);
-    return { q, price, total, missing: req.lines.length - quoted.length, rating: ratings.get(q.supplierId) ?? null };
+    const high = quoted.filter((l) => flagFor(l, price.get(l.id)!)).length;
+    return { q, price, total, high, missing: req.lines.length - quoted.length, rating: ratings.get(q.supplierId) ?? null };
   });
   const badges = quoteBadges(rows.map((r) => ({ id: r.q.id, total: r.total, deliveryDate: r.q.deliveryDate, rating: r.rating?.avg ?? null })));
   const cheapest = rows.length ? rows.reduce((a, b) => (b.total < a.total && b.missing === 0 ? b : a)) : null;
@@ -86,7 +96,7 @@ export default async function RequestPage({
         <form action={awardQuote} className="stack" style={{ maxWidth: "none" }}>
           <input type="hidden" name="requestId" value={req.id} />
           <div className="quotes">
-            {rows.map(({ q, price, total, missing, rating }) => (
+            {rows.map(({ q, price, total, high, missing, rating }) => (
               <label key={q.id} className="quote">
                 <div className="row" style={{ alignItems: "flex-start" }}>
                   <div>
@@ -99,6 +109,7 @@ export default async function RequestPage({
                 <div className="badges">
                   {(badges[q.id] ?? []).map((b) => <Pill key={b} tone={b === "Lowest total" ? "green" : b === "Top rated" ? "amber" : "blue"}>{b}</Pill>)}
                   {missing ? <Pill tone="red">Missing {missing} item{missing > 1 ? "s" : ""}</Pill> : null}
+                  {high ? <Pill tone="red">{high} price{high > 1 ? "s look" : " looks"} high</Pill> : null}
                   {needsApproval(total, business.approvalLimit) ? <Pill tone="grey">Needs approval</Pill> : null}
                   {q.status === "AWARDED" ? <Pill tone="blue">Awarded</Pill> : null}
                 </div>
@@ -107,7 +118,13 @@ export default async function RequestPage({
                     {req.lines.map((l) => (
                       <tr key={l.id}>
                         <td>{l.product} <span className="k">× {qty(l.quantity)} {l.unit}</span></td>
-                        <td className="r">{price.has(l.id) ? <>{naira(price.get(l.id)!)}<span className="k">/{l.unit}</span></> : <span className="k">not quoted</span>}</td>
+                        <td className="r">
+                          {price.has(l.id) ? <>{naira(price.get(l.id)!)}<span className="k">/{l.unit}</span></> : <span className="k">not quoted</span>}
+                          {(() => {
+                            const f = price.has(l.id) ? flagFor(l, price.get(l.id)!) : null;
+                            return f ? <div className="k" style={{ color: "var(--red)" }}>+{f.pct}% on {f.against === "last" ? "your last" : "going rate"} {naira(f.ref)}</div> : null;
+                          })()}
+                        </td>
                       </tr>
                     ))}
                     <tr><td>Delivery</td><td className="r">{q.deliveryFee ? naira(q.deliveryFee) : "Free"}</td></tr>
