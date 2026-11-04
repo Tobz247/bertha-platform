@@ -19,6 +19,7 @@ async function main() {
   if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed in production");
 
   await db.$transaction([
+    db.dishSale.deleteMany(), db.recipeIngredient.deleteMany(), db.recipe.deleteMany(), db.catalogItem.deleteMany(),
     db.stockMovement.deleteMany(), db.stockBatch.deleteMany(), db.stockItem.deleteMany(),
     db.rating.deleteMany(), db.payment.deleteMany(), db.invoice.deleteMany(), db.orderEvent.deleteMany(),
     db.orderLine.deleteMany(), db.purchaseOrder.deleteMany(), db.quoteLine.deleteMany(), db.quote.deleteMany(),
@@ -140,6 +141,59 @@ async function main() {
   await item("Rice, long grain", "50kg bag", "DRY_STORE", 9, 5, 10, 200, 72000);
   await item("Palm oil", "25L jerrycan", "DRY_STORE", 3, 2, 4, 120, 48000);
   await item("Plantain", "bunch", "DRY_STORE", 14, 10, 20, 4, 4500);
+
+  // Supplier price lists
+  const list = async (supplierId: string, categoryId: string, items: [string, string, number][], deliveryFee = 0, minOrderValue: number | null = null) => {
+    await db.business.update({ where: { id: supplierId }, data: { deliveryFee, minOrderValue } });
+    for (const [name, unit, price] of items) await db.catalogItem.create({ data: { supplierId, categoryId, name, unit, price } });
+  };
+  await list(gwag.id, veg.id, [["Tomatoes", "basket", 25000], ["Onions", "bag", 60000], ["Pepper (tatashe)", "basket", 18000], ["Plantain", "bunch", 4300]], 3000, 30000);
+  await list(karu.id, veg.id, [["Tomatoes", "basket", 23500], ["Onions", "bag", 61000]], 2500);
+  await list(karu.id, oils.id, [["Palm oil", "25L jerrycan", 46000], ["Groundnut oil", "25L jerrycan", 58000]]);
+  await list(kuje.id, poultry.id, [["Eggs", "crate", 5600], ["Whole chicken (frozen)", "kg", 4700]], 2000);
+  await list(deidei.id, grains.id, [["Rice, long grain", "50kg bag", 70000], ["Beans (oloyin)", "50kg bag", 84000]], 0, 100000);
+
+  // A second buyer, so the going rate on Bertha has more than one business behind it
+  const resto = await db.business.create({
+    data: { name: "Jabi Lake Kitchen", type: "BUYER", phone: "0803 555 0192", address: "Jabi Lake Mall, Jabi", area: "Jabi", verification: "VERIFIED", approvalLimit: 300000 },
+  });
+  const ada = await db.user.create({ data: { name: "Ada Okafor", email: "ada@jabilakekitchen.test", passwordHash: hash, role: "OWNER", businessId: resto.id } });
+  const pastOrder = async (buyerId: string, by: string, supplierId: string, ago: number, lines: [string, string, number, number][]) =>
+    db.purchaseOrder.create({
+      data: {
+        buyerId, supplierId, status: "RECEIVED", deliveryDate: day(-ago), receivedAt: day(-ago), createdAt: day(-ago - 1),
+        deliveryAddress: "On file", createdById: by,
+        lines: { create: lines.map(([product, unit, quantity, unitPrice], i) => ({ product, unit, quantity, unitPrice, receivedQty: quantity, position: i })) },
+        events: { create: [{ actorId: by, message: "Order raised", at: day(-ago - 1) }, { message: "Goods received in full", at: day(-ago) }] },
+      },
+    });
+  await pastOrder(resto.id, ada.id, gwag.id, 12, [["Tomatoes", "basket", 3, 22000], ["Onions", "bag", 1, 58000]]);
+  await pastOrder(resto.id, ada.id, deidei.id, 9, [["Rice, long grain", "50kg bag", 3, 66000]]);
+  await pastOrder(resto.id, ada.id, kuje.id, 4, [["Eggs", "crate", 6, 5400], ["Whole chicken (frozen)", "kg", 25, 4600]]);
+  await pastOrder(hotel.id, tobi.id, gwag.id, 20, [["Tomatoes", "basket", 5, 24000], ["Onions", "bag", 2, 62000]]);
+  await pastOrder(hotel.id, tobi.id, karu.id, 10, [["Tomatoes", "basket", 6, 27000], ["Plantain", "bunch", 20, 4500]]);
+  await pastOrder(hotel.id, tobi.id, kuje.id, 15, [["Whole chicken (frozen)", "kg", 80, 4800], ["Croaker fish", "kg", 20, 6500]]);
+
+  // Recipes, with a few days of sales
+  const stock = new Map((await db.stockItem.findMany({ where: { buyerId: hotel.id } })).map((i) => [i.name, i.id]));
+  const recipe = async (name: string, menuPrice: number, portions: number, ings: [string, number][]) =>
+    db.recipe.create({
+      data: { buyerId: hotel.id, name, menuPrice, portions, ingredients: { create: ings.map(([n, quantity]) => ({ itemId: stock.get(n)!, quantity })) } },
+    });
+  const jollof = await recipe("Jollof rice with chicken", 6500, 40, [["Rice, long grain", 0.3], ["Tomatoes", 0.5], ["Onions", 0.1], ["Whole chicken (frozen)", 12]]);
+  await recipe("Fish pepper soup", 7000, 10, [["Croaker fish", 3], ["Onions", 0.02]]);
+  const plantain = await recipe("Fried plantain (side)", 1500, 20, [["Plantain", 2], ["Palm oil", 0.05]]);
+  await db.dishSale.createMany({ data: [
+    { recipeId: jollof.id, quantity: 32, soldOn: day(-2), userId: chef.id },
+    { recipeId: plantain.id, quantity: 25, soldOn: day(-2), userId: chef.id },
+  ] });
+  const move = async (name: string, type: "SOLD" | "WASTED" | "COUNT_ADJUST" | "USED", quantity: number, reason: string, ago: number) =>
+    db.stockMovement.create({ data: { itemId: stock.get(name)!, type, quantity, reason, userId: chef.id, at: day(-ago) } });
+  await move("Whole chicken (frozen)", "SOLD", -9.6, "Dishes sold: 32 × Jollof rice with chicken", 2);
+  await move("Tomatoes", "SOLD", -0.4, "Dishes sold: 32 × Jollof rice with chicken", 2);
+  await move("Plantain", "SOLD", -2.5, "Dishes sold: 25 × Fried plantain (side)", 2);
+  await move("Tomatoes", "WASTED", -0.5, "Spoiled", 1);
+  await move("Whole chicken (frozen)", "COUNT_ADJUST", -2.4, "Counted 18", 1);
 
   console.log(`Seeded. Every account uses the password "${PASSWORD}".`);
 }

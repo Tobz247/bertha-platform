@@ -19,7 +19,7 @@ export default async function SupplierOrder({ params, searchParams }: { params: 
   );
   return (
     <>
-      <PageHead title={o.buyer.name} eyebrow={<><span className="mono">{poNo(o.number)}</span> · {day(o.createdAt)}</>} backHref="/supplier/orders" backLabel="Orders" action={<OrderStatusPill status={o.status} />} />
+      <PageHead title={o.buyer.name} eyebrow={<><span className="mono">{poNo(o.number)}</span> · {day(o.createdAt)} · {o.source === "PRICE_LIST" ? "from your price list" : "from your quote"}</>} backHref="/supplier/orders" backLabel="Orders" action={<OrderStatusPill status={o.status} />} />
       <Flash sp={sp} />
       <div className="grid2">
         <div className="stack">

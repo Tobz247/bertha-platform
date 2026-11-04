@@ -148,6 +148,7 @@ legend { font-size: 13px; font-weight: 600; padding: 0 6px; }
 /* line editor */
 .lines { display: grid; gap: 8px; }
 .line { display: grid; grid-template-columns: minmax(0, 1fr) 90px 110px 36px; gap: 6px; align-items: center; }
+.line.ing { grid-template-columns: minmax(0, 1fr) 90px 80px 36px; }
 .line .x { border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; }
 
 /* quotes */

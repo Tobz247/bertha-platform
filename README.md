@@ -17,17 +17,26 @@ and keep their stock up to date from what arrives.
 - Stock: batches with use-by dates, usage and waste (oldest batch first), stock counts, low-stock and
   expiring alerts, and one-click reorder into a new request
 - Team members with Owner, Manager and Staff roles
+- Suppliers directory and ordering straight from a supplier's price list (no quote round needed);
+  approval limits, minimum order and delivery fee still apply
+- Prices: what you paid for each item over time, the going rate on Bertha (median of the last 60 days,
+  shown once two or more businesses bought the item), spend by supplier, and flags on quotes and price
+  lists that are more than 10% above your last price or the going rate
+- Recipes: dishes built from stock items, cost per plate and food cost % (flagged above 35%); recording
+  dishes sold takes the ingredients out of stock, and a weekly view shows sold vs other use, waste and
+  shortfalls found in stock counts
 
 **Suppliers**
 - Sign up, choose categories, add bank details; quote once verified
 - Inbox of matching requests, quote or update a quote, withdraw
 - Accept or decline orders, mark dispatched, raise invoices, see payments
+- Price list with stock on/off, minimum quantities, delivery fee and minimum order, compared with the going rate
 
 **Platform admin**
 - Verify or reject suppliers, manage categories
 
 Not yet included: online payments, SMS/WhatsApp messages (calls go through `src/lib/notify.ts`, which only logs
-for now), logistics booking, market prices and forecasting.
+for now), logistics booking, invoice photo scanning, POS/accounting links, multiple branches and forecasting.
 
 ## Tech
 
@@ -53,6 +62,7 @@ Sample accounts after seeding all use the password `bertha-demo-2026`:
 | Hotel owner | tobi@maitamagrove.test |
 | Hotel manager (approves) | amina@maitamagrove.test |
 | Hotel staff | kunle@maitamagrove.test |
+| Restaurant owner | ada@jabilakekitchen.test |
 | Supplier | ngozi@karuwholesale.test, musa@gwagfarms.test, ibrahim@kujepoultry.test |
 | Supplier waiting for checks | peter@bwarifarms.test |
 | Platform admin | admin@bertha.test |

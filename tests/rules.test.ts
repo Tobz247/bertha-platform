@@ -121,3 +121,58 @@ describe("stock", () => {
     expect(suggestedReorder(2, 4, 0)).toBe(6);
   });
 });
+
+describe("prices", () => {
+  it("matches the same product loosely", async () => {
+    const { priceKey } = await import("@/lib/rules");
+    expect(priceKey(" Tomatoes ", "Basket")).toBe(priceKey("tomato", "basket"));
+    expect(priceKey("Rice", "50kg bag")).not.toBe(priceKey("Rice", "kg"));
+    expect(priceKey("Eggs", "crate")).toBe("egg|crate");
+    expect(priceKey("Fresh Pepper", "kg")).toBe("fresh pepper|kg");
+    expect(priceKey("Irish potatoes", "bag")).toBe(priceKey("Irish potato", "bag"));
+    expect(priceKey("Cabbages", "head")).toBe("cabbage|head");
+    expect(priceKey("Grass", "kg")).toBe("grass|kg");
+  });
+  it("takes the median", async () => {
+    const { median } = await import("@/lib/rules");
+    expect(median([])).toBeNull();
+    expect(median([5, 1, 3])).toBe(3);
+    expect(median([1000, 2001])).toBe(1501);
+  });
+  it("flags prices well above your last price, or the market when you have none", async () => {
+    const { priceFlag } = await import("@/lib/rules");
+    expect(priceFlag(11000, { lastPaid: 10000 })).toBeNull();
+    expect(priceFlag(11500, { lastPaid: 10000, market: 20000 })).toEqual({ pct: 15, against: "last", ref: 10000 });
+    expect(priceFlag(26000, { lastPaid: null, market: 20000 })).toEqual({ pct: 30, against: "market", ref: 20000 });
+    expect(priceFlag(26000, {})).toBeNull();
+  });
+});
+
+describe("recipes", () => {
+  it("costs a dish per portion and notes missing prices", async () => {
+    const { recipeCost, foodCostPct } = await import("@/lib/rules");
+    const c = recipeCost([{ quantity: 2, unitPrice: 1500 }, { quantity: 0.5, unitPrice: 4000 }, { quantity: 1, unitPrice: null }], 10);
+    expect(c).toEqual({ batch: 5000, perPortion: 500, missing: 1 });
+    expect(foodCostPct(500, 2000)).toBe(25);
+    expect(foodCostPct(500, 0)).toBeNull();
+  });
+  it("turns dishes sold into ingredient usage", async () => {
+    const { dishUsage } = await import("@/lib/rules");
+    expect(dishUsage([{ itemId: "rice", quantity: 2 }, { itemId: "oil", quantity: 0.3 }], 15, 10)).toEqual([
+      { itemId: "rice", quantity: 3 },
+      { itemId: "oil", quantity: 0.45 },
+    ]);
+  });
+  it("splits where stock went", async () => {
+    const { usageBreakdown } = await import("@/lib/rules");
+    expect(
+      usageBreakdown([
+        { type: "SOLD", quantity: -3 },
+        { type: "USED", quantity: -1 },
+        { type: "WASTED", quantity: -0.5 },
+        { type: "COUNT_ADJUST", quantity: -0.25 },
+        { type: "RECEIVED", quantity: 10 },
+      ]),
+    ).toEqual({ sold: 3, used: 1, wasted: 0.5, unexplained: 0.25 });
+  });
+});
