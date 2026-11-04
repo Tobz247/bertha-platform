@@ -6,6 +6,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const items = [
     { href: "/admin", label: "Supplier checks" },
     { href: "/admin/categories", label: "Categories" },
+    ...(user.business ? [{ href: "/", label: `Back to ${user.business.name}` }] : []),
   ];
   return (
     <Shell items={items} businessName="Platform admin" userName={user.name}>

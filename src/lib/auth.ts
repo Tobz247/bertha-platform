@@ -32,6 +32,15 @@ export async function requireSupplier() {
   return { user, business: user.business };
 }
 
+/** Emails listed in ADMIN_EMAILS get the platform admin pages. */
+export function isAdminEmail(email: string) {
+  return (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.toLowerCase());
+}
+
 export async function requireAdmin() {
   const user = await requireUser();
   if (!user.isPlatformAdmin) redirect("/");
