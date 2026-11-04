@@ -7,9 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url       = env("DATABASE_URL")
-  // Direct (non-pooled) connection used for migrations. Locally it can be the same as DATABASE_URL.
-  directUrl = env("DATABASE_URL_UNPOOLED")
+  url      = env("DATABASE_URL")
 }
 
 enum BusinessType {

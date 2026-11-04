@@ -65,14 +65,15 @@ npm test       # business rules (totals, approvals, payment status, stock)
 npm run build
 ```
 
-## Deploying (Vercel + Neon)
+## Deploying (Vercel)
 
 1. In Vercel, import this GitHub repository as a new project (framework: Next.js).
-2. In the project's **Storage** tab, add a **Neon** Postgres database. Vercel sets `DATABASE_URL` and
-   `DATABASE_URL_UNPOOLED` for you.
+2. Add a Postgres database to the project: **Prisma Postgres** or **Neon** from the Storage tab or the
+   integrations offered on import. Vercel sets `DATABASE_URL` for you.
 3. In **Settings → Environment Variables**, add `SESSION_SECRET` (a long random string) and `ADMIN_EMAILS`
-   (your email, comma-separate several).
-4. Redeploy. The build runs `prisma migrate deploy`, which creates the tables and the starting categories.
+   (your email; comma-separate several).
+4. Redeploy. The build runs the migrations (`scripts/migrate.mjs`), which create the tables and the starting
+   categories. It uses a direct connection (`DATABASE_URL_UNPOOLED` or `POSTGRES_URL_NON_POOLING`) when one is set.
 5. Sign up with an email from `ADMIN_EMAILS`. You'll see **Platform admin** in the menu, where you verify suppliers.
 
 Never run `npm run db:seed` against the live database: it deletes everything first.
