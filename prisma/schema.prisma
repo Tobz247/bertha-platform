@@ -1,0 +1,341 @@
+// Bertha Services: procurement, orders and inventory for food businesses.
+// Money is stored in whole Naira (Int). Quantities are Float (e.g. 2.5 kg).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BusinessType {
+  BUYER
+  SUPPLIER
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+model Business {
+  id                String             @id @default(cuid())
+  name              String
+  type              BusinessType
+  cacNumber         String?
+  phone             String
+  address           String
+  area              String // e.g. Wuse, Garki, Gwagwalada
+  state             String             @default("FCT")
+  verification      VerificationStatus @default(PENDING)
+  approvalLimit     Int? // buyers: POs above this total (Naira) need a manager's approval
+  bankName          String?
+  bankAccountNumber String?
+  bankAccountName   String?
+  createdAt         DateTime           @default(now())
+
+  users         User[]
+  categories    Category[]      @relation("SupplierCategories")
+  requests      Request[]       @relation("BuyerRequests")
+  invites       RequestInvite[]
+  quotes        Quote[]
+  buyerOrders   PurchaseOrder[] @relation("BuyerOrders")
+  supplierOrders PurchaseOrder[] @relation("SupplierOrders")
+  stockItems    StockItem[]
+  ratingsGiven  Rating[]        @relation("RatingBuyer")
+  ratingsGot    Rating[]        @relation("RatingSupplier")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  phone           String?
+  passwordHash    String
+  role            UserRole @default(STAFF)
+  isPlatformAdmin Boolean  @default(false)
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id])
+  createdAt       DateTime @default(now())
+
+  requestsCreated Request[]       @relation("RequestCreator")
+  ordersCreated   PurchaseOrder[] @relation("OrderCreator")
+  ordersApproved  PurchaseOrder[] @relation("OrderApprover")
+  payments        Payment[]
+  movements       StockMovement[]
+  events          OrderEvent[]
+}
+
+model Category {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  units     String // comma-separated suggested units, e.g. "kg,basket,bag"
+  suppliers Business[] @relation("SupplierCategories")
+  requests  Request[]
+}
+
+enum RequestStatus {
+  OPEN
+  AWARDED
+  CLOSED
+  CANCELLED
+}
+
+enum RequestAudience {
+  ALL_VERIFIED
+  SHORTLIST
+}
+
+model Request {
+  id              String          @id @default(cuid())
+  number          Int             @unique @default(autoincrement())
+  title           String
+  buyerId         String
+  buyer           Business        @relation("BuyerRequests", fields: [buyerId], references: [id])
+  categoryId      String
+  category        Category        @relation(fields: [categoryId], references: [id])
+  deliveryAddress String
+  neededBy        DateTime
+  quoteDeadline   DateTime
+  audience        RequestAudience @default(ALL_VERIFIED)
+  status          RequestStatus   @default(OPEN)
+  notes           String?
+  createdById     String
+  createdBy       User            @relation("RequestCreator", fields: [createdById], references: [id])
+  createdAt       DateTime        @default(now())
+
+  lines   RequestLine[]
+  invites RequestInvite[]
+  quotes  Quote[]
+  orders  PurchaseOrder[]
+}
+
+model RequestLine {
+  id         String      @id @default(cuid())
+  requestId  String
+  request    Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  product    String
+  quantity   Float
+  unit       String
+  notes      String?
+  position   Int         @default(0)
+  quoteLines QuoteLine[]
+}
+
+model RequestInvite {
+  requestId  String
+  request    Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplierId String
+  supplier   Business @relation(fields: [supplierId], references: [id])
+
+  @@id([requestId, supplierId])
+}
+
+enum QuoteStatus {
+  SUBMITTED
+  AWARDED
+  NOT_SELECTED
+  WITHDRAWN
+}
+
+model Quote {
+  id           String      @id @default(cuid())
+  requestId    String
+  request      Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplierId   String
+  supplier     Business    @relation(fields: [supplierId], references: [id])
+  deliveryFee  Int         @default(0)
+  deliveryDate DateTime
+  validUntil   DateTime
+  notes        String?
+  status       QuoteStatus @default(SUBMITTED)
+  createdAt    DateTime    @default(now())
+  lines        QuoteLine[]
+  order        PurchaseOrder?
+
+  @@unique([requestId, supplierId])
+}
+
+model QuoteLine {
+  id            String      @id @default(cuid())
+  quoteId       String
+  quote         Quote       @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  requestLineId String
+  requestLine   RequestLine @relation(fields: [requestLineId], references: [id], onDelete: Cascade)
+  unitPrice     Int
+}
+
+enum OrderStatus {
+  AWAITING_APPROVAL
+  NOT_APPROVED
+  AWAITING_SUPPLIER
+  DECLINED
+  CONFIRMED
+  DISPATCHED
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id              String      @id @default(cuid())
+  number          Int         @unique @default(autoincrement())
+  buyerId         String
+  buyer           Business    @relation("BuyerOrders", fields: [buyerId], references: [id])
+  supplierId      String
+  supplier        Business    @relation("SupplierOrders", fields: [supplierId], references: [id])
+  requestId       String?
+  request         Request?    @relation(fields: [requestId], references: [id])
+  quoteId         String?     @unique
+  quote           Quote?      @relation(fields: [quoteId], references: [id])
+  status          OrderStatus
+  paymentTermsDays Int        @default(0) // 0 = pay on delivery
+  deliveryFee     Int         @default(0)
+  deliveryDate    DateTime
+  deliveryAddress String
+  createdById     String
+  createdBy       User        @relation("OrderCreator", fields: [createdById], references: [id])
+  approvedById    String?
+  approvedBy      User?       @relation("OrderApprover", fields: [approvedById], references: [id])
+  approvedAt      DateTime?
+  decisionNote    String?
+  receivedAt      DateTime?
+  createdAt       DateTime    @default(now())
+
+  lines    OrderLine[]
+  invoice  Invoice?
+  payments Payment[]
+  events   OrderEvent[]
+  rating   Rating?
+  movements StockMovement[]
+}
+
+model OrderLine {
+  id          String        @id @default(cuid())
+  orderId     String
+  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     String
+  unit        String
+  quantity    Float
+  unitPrice   Int
+  receivedQty Float?
+  issue       String? // Short delivery, Poor quality, Wrong item
+  position    Int           @default(0)
+}
+
+model Invoice {
+  id       String        @id @default(cuid())
+  orderId  String        @unique
+  order    PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  number   String
+  amount   Int
+  issuedAt DateTime      @default(now())
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+}
+
+model Payment {
+  id           String        @id @default(cuid())
+  orderId      String
+  order        PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method       PaymentMethod
+  amount       Int
+  reference    String?
+  paidAt       DateTime
+  recordedById String
+  recordedBy   User          @relation(fields: [recordedById], references: [id])
+  createdAt    DateTime      @default(now())
+}
+
+model OrderEvent {
+  id      String        @id @default(cuid())
+  orderId String
+  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actorId String?
+  actor   User?         @relation(fields: [actorId], references: [id])
+  message String
+  at      DateTime      @default(now())
+}
+
+model Rating {
+  id         String        @id @default(cuid())
+  orderId    String        @unique
+  order      PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  buyerId    String
+  buyer      Business      @relation("RatingBuyer", fields: [buyerId], references: [id])
+  supplierId String
+  supplier   Business      @relation("RatingSupplier", fields: [supplierId], references: [id])
+  quality    Int
+  accuracy   Int
+  timeliness Int
+  price      Int
+  comment    String?
+  createdAt  DateTime      @default(now())
+}
+
+enum StorageLocation {
+  DRY_STORE
+  COLD_ROOM
+  FREEZER
+  OTHER
+}
+
+model StockItem {
+  id            String          @id @default(cuid())
+  buyerId       String
+  buyer         Business        @relation(fields: [buyerId], references: [id])
+  name          String
+  unit          String
+  location      StorageLocation @default(DRY_STORE)
+  reorderLevel  Float           @default(0)
+  reorderQty    Float           @default(0)
+  lastUnitPrice Int?
+  createdAt     DateTime        @default(now())
+
+  batches   StockBatch[]
+  movements StockMovement[]
+
+  @@unique([buyerId, name, unit])
+}
+
+model StockBatch {
+  id         String    @id @default(cuid())
+  itemId     String
+  item       StockItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  quantity   Float // remaining
+  receivedAt DateTime  @default(now())
+  expiresAt  DateTime?
+}
+
+enum MovementType {
+  RECEIVED
+  ADDED
+  USED
+  WASTED
+  COUNT_ADJUST
+}
+
+model StockMovement {
+  id       String         @id @default(cuid())
+  itemId   String
+  item     StockItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type     MovementType
+  quantity Float // signed: + in, - out
+  reason   String?
+  userId   String
+  user     User           @relation(fields: [userId], references: [id])
+  orderId  String?
+  order    PurchaseOrder? @relation(fields: [orderId], references: [id])
+  at       DateTime       @default(now())
+}

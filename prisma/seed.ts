@@ -1,0 +1,152 @@
+/**
+ * Sample data for local development and demos. Every business, person and price here is made up.
+ * Run with `npm run db:seed`. It wipes existing data first, so never run it against production.
+ */
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+
+const db = new PrismaClient();
+const PASSWORD = "bertha-demo-2026";
+
+const day = (offset: number) => {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + offset);
+  return d;
+};
+
+async function main() {
+  if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed in production");
+
+  await db.$transaction([
+    db.stockMovement.deleteMany(), db.stockBatch.deleteMany(), db.stockItem.deleteMany(),
+    db.rating.deleteMany(), db.payment.deleteMany(), db.invoice.deleteMany(), db.orderEvent.deleteMany(),
+    db.orderLine.deleteMany(), db.purchaseOrder.deleteMany(), db.quoteLine.deleteMany(), db.quote.deleteMany(),
+    db.requestInvite.deleteMany(), db.requestLine.deleteMany(), db.request.deleteMany(),
+    db.user.deleteMany(), db.business.deleteMany(), db.category.deleteMany(),
+  ]);
+
+  const hash = await bcrypt.hash(PASSWORD, 10);
+  const cat = async (name: string, units: string) => db.category.create({ data: { name, units } });
+  const veg = await cat("Vegetables and fruit", "kg,basket,bag,crate,bunch,bundle");
+  const grains = await cat("Grains and dry goods", "50kg bag,kg,mudu,carton");
+  const poultry = await cat("Poultry and eggs", "kg,crate,bird");
+  const meat = await cat("Meat and fish", "kg,carton");
+  const oils = await cat("Oils and condiments", "25L jerrycan,litre,carton");
+  await cat("Dairy and drinks", "carton,litre,pack");
+
+  await db.user.create({ data: { name: "Bertha Admin", email: "admin@bertha.test", passwordHash: hash, isPlatformAdmin: true, role: "OWNER" } });
+
+  const supplier = async (name: string, area: string, cats: string[], person: string, email: string, verified = true) =>
+    db.business.create({
+      data: {
+        name, type: "SUPPLIER", area, address: `${area} market, Abuja`, phone: "0803 000 0000",
+        verification: verified ? "VERIFIED" : "PENDING",
+        categories: { connect: cats.map((id) => ({ id })) },
+        users: { create: { name: person, email, passwordHash: hash, role: "OWNER" } },
+      },
+    });
+  const gwag = await supplier("Gwagwalada Fresh Farms", "Gwagwalada", [veg.id], "Musa Bello", "musa@gwagfarms.test");
+  const karu = await supplier("Karu Market Wholesale", "Karu", [veg.id, oils.id], "Ngozi Eze", "ngozi@karuwholesale.test");
+  const kuje = await supplier("Kuje Poultry Co-op", "Kuje", [poultry.id, meat.id], "Ibrahim Sule", "ibrahim@kujepoultry.test");
+  const deidei = await supplier("Dei-Dei Grains Ltd", "Dutse", [grains.id], "Halima Yusuf", "halima@deideigrains.test");
+  await supplier("Bwari Farms", "Bwari", [poultry.id], "Peter Okon", "peter@bwarifarms.test", false);
+
+  const hotel = await db.business.create({
+    data: {
+      name: "Maitama Grove Hotel", type: "BUYER", area: "Maitama", address: "Plot 12, Maitama, Abuja", phone: "0809 000 0000",
+      verification: "VERIFIED", approvalLimit: 500000,
+    },
+  });
+  const tobi = await db.user.create({ data: { name: "Tobi Adeyemi", email: "tobi@maitamagrove.test", passwordHash: hash, role: "OWNER", businessId: hotel.id } });
+  await db.user.create({ data: { name: "Amina Garba", email: "amina@maitamagrove.test", passwordHash: hash, role: "MANAGER", businessId: hotel.id } });
+  const chef = await db.user.create({ data: { name: "Chef Kunle", email: "kunle@maitamagrove.test", passwordHash: hash, role: "STAFF", businessId: hotel.id } });
+
+  // A request with three quotes to compare
+  const r1 = await db.request.create({
+    data: {
+      title: "Weekend vegetables", buyerId: hotel.id, categoryId: veg.id, deliveryAddress: hotel.address,
+      neededBy: day(2), quoteDeadline: day(1), createdById: chef.id,
+      lines: { create: [
+        { product: "Tomatoes", quantity: 6, unit: "basket", position: 0 },
+        { product: "Tatashe (red pepper)", quantity: 2, unit: "basket", position: 1 },
+        { product: "Onions", quantity: 3, unit: "bag", position: 2 },
+      ] },
+    },
+    include: { lines: { orderBy: { position: "asc" } } },
+  });
+  const quote = (supplierId: string, prices: number[], fee: number, deliver: number) =>
+    db.quote.create({
+      data: {
+        requestId: r1.id, supplierId, deliveryFee: fee, deliveryDate: day(deliver), validUntil: day(3),
+        lines: { create: r1.lines.map((l, i) => ({ requestLineId: l.id, unitPrice: prices[i] })) },
+      },
+    });
+  await quote(gwag.id, [28000, 22000, 65000], 5000, 2);
+  await quote(karu.id, [30000, 21000, 60000], 0, 2);
+
+  // A large request: awarding it needs approval
+  const r2 = await db.request.create({
+    data: {
+      title: "Chicken for the conference", buyerId: hotel.id, categoryId: poultry.id, deliveryAddress: hotel.address,
+      neededBy: day(6), quoteDeadline: day(2), createdById: tobi.id,
+      lines: { create: [{ product: "Whole chicken (frozen)", quantity: 120, unit: "kg", position: 0 }] },
+    },
+    include: { lines: true },
+  });
+  await db.quote.create({
+    data: { requestId: r2.id, supplierId: kuje.id, deliveryFee: 10000, deliveryDate: day(5), validUntil: day(4), lines: { create: [{ requestLineId: r2.lines[0].id, unitPrice: 4800 }] } },
+  });
+
+  // An order on its way (pay on delivery)
+  await db.purchaseOrder.create({
+    data: {
+      buyerId: hotel.id, supplierId: kuje.id, status: "DISPATCHED", paymentTermsDays: 0, deliveryFee: 2000,
+      deliveryDate: day(0), deliveryAddress: hotel.address, createdById: tobi.id,
+      lines: { create: [{ product: "Eggs", unit: "crate", quantity: 20, unitPrice: 5800 }] },
+      events: { create: [{ actorId: tobi.id, message: "Order raised" }, { message: "Confirmed by supplier" }, { message: "Dispatched" }] },
+    },
+  });
+
+  // A delivered order on 30-day terms, part paid
+  const deliveredAt = day(-6);
+  await db.purchaseOrder.create({
+    data: {
+      buyerId: hotel.id, supplierId: deidei.id, status: "RECEIVED", paymentTermsDays: 30, deliveryFee: 0,
+      deliveryDate: deliveredAt, deliveryAddress: hotel.address, createdById: tobi.id, receivedAt: deliveredAt, createdAt: day(-8),
+      lines: { create: [
+        { product: "Rice, long grain", unit: "50kg bag", quantity: 10, unitPrice: 72000, receivedQty: 10, position: 0 },
+        { product: "Beans (oloyin)", unit: "50kg bag", quantity: 4, unitPrice: 85000, receivedQty: 4, position: 1 },
+      ] },
+      invoice: { create: { number: "DDG-0831", amount: 1060000, issuedAt: deliveredAt } },
+      payments: { create: { method: "TRANSFER", amount: 500000, reference: "GTB-77120384", paidAt: day(-5), recordedById: tobi.id } },
+      events: { create: [{ actorId: tobi.id, message: "Order raised", at: day(-8) }, { message: "Goods received in full", at: deliveredAt }] },
+      rating: { create: { buyerId: hotel.id, supplierId: deidei.id, quality: 5, accuracy: 5, timeliness: 4, price: 4 } },
+    },
+  });
+
+  // Stock
+  const item = async (name: string, unit: string, location: "DRY_STORE" | "COLD_ROOM" | "FREEZER", qty: number, reorderLevel: number, reorderQty: number, expires: number | null, price: number) => {
+    const i = await db.stockItem.create({
+      data: { buyerId: hotel.id, name, unit, location, reorderLevel, reorderQty, lastUnitPrice: price },
+    });
+    await db.stockBatch.create({ data: { itemId: i.id, quantity: qty, receivedAt: day(-5), expiresAt: expires == null ? null : day(expires) } });
+    await db.stockMovement.create({ data: { itemId: i.id, type: "ADDED", quantity: qty, reason: "Opening stock", userId: chef.id, at: day(-5) } });
+  };
+  await item("Tomatoes", "basket", "COLD_ROOM", 2, 4, 6, 3, 27000);
+  await item("Onions", "bag", "DRY_STORE", 1, 2, 3, 20, 62000);
+  await item("Whole chicken (frozen)", "kg", "FREEZER", 18, 40, 80, 70, 4800);
+  await item("Croaker fish", "kg", "FREEZER", 12, 10, 20, 2, 6500);
+  await item("Rice, long grain", "50kg bag", "DRY_STORE", 9, 5, 10, 200, 72000);
+  await item("Palm oil", "25L jerrycan", "DRY_STORE", 3, 2, 4, 120, 48000);
+  await item("Plantain", "bunch", "DRY_STORE", 14, 10, 20, 4, 4500);
+
+  console.log(`Seeded. Every account uses the password "${PASSWORD}".`);
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(() => db.$disconnect());
