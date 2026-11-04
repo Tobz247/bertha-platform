@@ -73,7 +73,7 @@ npm run build
 3. In **Settings → Environment Variables**, add `SESSION_SECRET` (a long random string) and `ADMIN_EMAILS`
    (your email; comma-separate several).
 4. Redeploy. The build runs the migrations (`scripts/migrate.mjs`), which create the tables and the starting
-   categories. It uses a direct connection (`DATABASE_URL_UNPOOLED` or `POSTGRES_URL_NON_POOLING`) when one is set.
+   categories on production deploys only (preview deploys never touch the database). It uses a direct connection (`DATABASE_URL_UNPOOLED` or `POSTGRES_URL_NON_POOLING`) when one is set.
 5. Sign up with an email from `ADMIN_EMAILS`. You'll see **Platform admin** in the menu, where you verify suppliers.
 
 Never run `npm run db:seed` against the live database: it deletes everything first.

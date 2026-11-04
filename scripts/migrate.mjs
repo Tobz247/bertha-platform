@@ -8,6 +8,13 @@ try {
   process.loadEnvFile();
 } catch {}
 
+// Vercel preview deployments (one per pull request) share the production database settings by default.
+// Only production deploys change the database, so a preview can never alter live data.
+if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") {
+  console.log(`Skipping database migrations on a ${process.env.VERCEL_ENV} deployment.`);
+  process.exit(0);
+}
+
 const url = process.env.DATABASE_URL_UNPOOLED || process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL;
 if (!url) {
   console.error("No database connection found. Add a Postgres database and set DATABASE_URL, then deploy again.");
