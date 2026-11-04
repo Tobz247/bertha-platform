@@ -15,6 +15,7 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
     ...(canApprove(user) ? [{ href: "/approvals", label: "Approvals", count: approvals }] : []),
     { href: "/stock", label: "Stock" },
     { href: "/settings", label: "Settings" },
+    ...(user.isPlatformAdmin ? [{ href: "/admin", label: "Platform admin" }] : []),
   ];
   return (
     <Shell items={items} businessName={business.name} userName={user.name}>

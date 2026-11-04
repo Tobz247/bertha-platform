@@ -65,8 +65,16 @@ npm test       # business rules (totals, approvals, payment status, stock)
 npm run build
 ```
 
-## Deploying
+## Deploying (Vercel + Neon)
 
-Any Node host with PostgreSQL works (for example Vercel with a managed Postgres such as Supabase or Neon).
-Set `DATABASE_URL` and `SESSION_SECRET`, run `npm run db:deploy` to apply migrations, then `npm run build`
-and `npm start`. Create the first platform admin by setting `isPlatformAdmin` on a user in the database.
+1. In Vercel, import this GitHub repository as a new project (framework: Next.js).
+2. In the project's **Storage** tab, add a **Neon** Postgres database. Vercel sets `DATABASE_URL` and
+   `DATABASE_URL_UNPOOLED` for you.
+3. In **Settings → Environment Variables**, add `SESSION_SECRET` (a long random string) and `ADMIN_EMAILS`
+   (your email, comma-separate several).
+4. Redeploy. The build runs `prisma migrate deploy`, which creates the tables and the starting categories.
+5. Sign up with an email from `ADMIN_EMAILS`. You'll see **Platform admin** in the menu, where you verify suppliers.
+
+Never run `npm run db:seed` against the live database: it deletes everything first.
+
+Any other Node host works the same way: set the four environment variables, then `npm run build` and `npm start`.

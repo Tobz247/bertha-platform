@@ -9,6 +9,7 @@ export default async function SupplierLayout({ children }: { children: React.Rea
     { href: "/supplier", label: "Requests for quotes" },
     { href: "/supplier/orders", label: "Orders", count: toAccept },
     { href: "/supplier/profile", label: "Business profile" },
+    ...(user.isPlatformAdmin ? [{ href: "/admin", label: "Platform admin" }] : []),
   ];
   return (
     <Shell items={items} businessName={business.name} userName={user.name}>

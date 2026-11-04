@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { back, str } from "@/lib/flash";
+import { isAdminEmail } from "@/lib/auth";
 import { createSession, destroySession } from "@/lib/session";
 
 export async function login(fd: FormData) {
@@ -12,6 +13,9 @@ export async function login(fd: FormData) {
   const user = await db.user.findUnique({ where: { email } });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
     back("/login", "error", "That email and password don't match. Check them and try again.");
+  }
+  if (isAdminEmail(email) && !user.isPlatformAdmin) {
+    await db.user.update({ where: { id: user.id }, data: { isPlatformAdmin: true } });
   }
   await createSession(user.id);
   redirect("/");
@@ -45,6 +49,7 @@ export async function signup(fd: FormData) {
       email,
       phone,
       role: "OWNER",
+      isPlatformAdmin: isAdminEmail(email),
       passwordHash: await bcrypt.hash(password, 10),
       business: {
         create: {
