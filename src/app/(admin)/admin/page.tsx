@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { setVerification } from "@/app/actions/supplier";
 import { Flash } from "@/components/Flash";
 import { Empty, PageHead, Pill } from "@/components/ui";
@@ -18,7 +19,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
   const pending = suppliers.filter((s) => s.verification === "PENDING");
   return (
     <>
-      <PageHead title="Supplier checks" eyebrow={`${pending.length} waiting · ${suppliers.length} suppliers in total`} />
+      <PageHead title="Supplier checks" eyebrow={`${pending.length} waiting · ${suppliers.length} suppliers in total`} action={<Link className="btn" href="/admin/suppliers/new">Add a supplier</Link>} />
       <Flash sp={sp} />
       <p className="k" style={{ maxWidth: 640 }}>Check documents and call the supplier before verifying. Only verified suppliers can send quotes.</p>
       {suppliers.length === 0 ? <Empty>No suppliers have signed up yet.</Empty> : null}
@@ -26,7 +27,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         {suppliers.map((s) => (
           <div key={s.id} className="card stack" style={{ gap: 8 }}>
             <div className="row">
-              <span className="t">{s.name}</span>
+              <Link className="t" href={`/admin/suppliers/${s.id}`}>{s.name}</Link>
               <Pill tone={s.verification === "VERIFIED" ? "green" : s.verification === "REJECTED" ? "red" : "amber"}>{s.verification.toLowerCase()}</Pill>
             </div>
             <div className="k">{s.categories.map((c) => c.name).join(", ")} · {s.area} · {s.address}</div>
@@ -36,6 +37,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
               {s.verification !== "VERIFIED" ? <button className="btn small" type="submit" name="status" value="VERIFIED">Verify</button> : null}
               {s.verification !== "REJECTED" ? <button className="btn danger small" type="submit" name="status" value="REJECTED">Reject</button> : null}
               {s.verification !== "PENDING" ? <button className="btn sec small" type="submit" name="status" value="PENDING">Back to pending</button> : null}
+              <Link className="btn sec small" href={`/admin/suppliers/${s.id}`}>Price list and login</Link>
             </form>
           </div>
         ))}

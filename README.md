@@ -39,6 +39,8 @@ and keep their stock up to date from what arrives.
 
 **Platform admin**
 - Verify or reject suppliers, manage categories
+- Add a supplier by hand (starts verified), type in their price list as "Item, unit, price" lines, update
+  their prices and reset their password; suppliers with no email sign in with their phone number
 
 Not yet included: online payments, SMS/WhatsApp messages (calls go through `src/lib/notify.ts`, which only logs
 for now), logistics booking, invoice photo scanning, POS/accounting links, multiple branches and forecasting.
