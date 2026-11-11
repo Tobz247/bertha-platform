@@ -227,3 +227,28 @@ export function usageBreakdown(movements: { type: string; quantity: number }[]) 
   }
   return { sold: round3(out.sold), used: round3(out.used), wasted: round3(out.wasted), unexplained: round3(out.unexplained) };
 }
+
+/* ---------------- portion control ---------------- */
+
+/** Units treated as kilograms when working out yield. */
+export function isKg(unit: string): boolean {
+  return /^(kg|kgs|kilo|kilos|kilogram|kilograms)$/i.test(unit.trim());
+}
+
+/**
+ * Result of cutting bulk stock into pieces.
+ * `yieldPct` (weight of pieces ÷ weight taken) is only known when the bulk is in kg and the pieces were weighed.
+ */
+export function portionResult(args: { inputQty: number; inputUnit: string; pieces: number; totalWeightKg: number | null; unitPrice: number | null }) {
+  const { inputQty, inputUnit, pieces, totalWeightKg, unitPrice } = args;
+  const cost = unitPrice == null ? 0 : Math.round(inputQty * unitPrice);
+  return {
+    cost,
+    costPerPiece: pieces > 0 ? Math.round(cost / pieces) : 0,
+    avgPieceGrams: totalWeightKg && pieces > 0 ? Math.round((totalWeightKg * 1000) / pieces) : null,
+    yieldPct: totalWeightKg && isKg(inputUnit) && inputQty > 0 ? Math.round((totalWeightKg / inputQty) * 100) : null,
+  };
+}
+
+/** GRN number shown to accounts: one per delivery, tied to the purchase order. */
+export const grnNo = (orderNumber: number) => `GRN-${String(orderNumber).padStart(4, "0")}`;

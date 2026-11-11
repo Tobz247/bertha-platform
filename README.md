@@ -22,6 +22,11 @@ and keep their stock up to date from what arrives.
 - Prices: what you paid for each item over time, the going rate on Bertha (median of the last 60 days,
   shown once two or more businesses bought the item), spend by supplier, and flags on quotes and price
   lists that are more than 10% above your last price or the going rate
+- Goods received notes: a printable note (GRN) for every delivery with received quantities, prices, totals,
+  invoice check, who received it and signature lines for the accounts office; a Goods received page lists
+  them by date and prints them all at once
+- Portion control: cut bulk meat, chicken or fish into counted, weighed pieces; Bertha adds a "pieces" stock
+  item and shows cost per piece, average piece weight and yield
 - Recipes: dishes built from stock items, cost per plate and food cost % (flagged above 35%); recording
   dishes sold takes the ingredients out of stock, and a weekly view shows sold vs other use, waste and
   shortfalls found in stock counts

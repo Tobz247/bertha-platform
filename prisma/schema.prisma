@@ -57,6 +57,7 @@ model Business {
   ratingsGot     Rating[]        @relation("RatingSupplier")
   catalogue      CatalogItem[]
   recipes        Recipe[]
+  portionRuns    PortionRun[]
 }
 
 model User {
@@ -74,6 +75,8 @@ model User {
   requestsCreated Request[]       @relation("RequestCreator")
   ordersCreated   PurchaseOrder[] @relation("OrderCreator")
   ordersApproved  PurchaseOrder[] @relation("OrderApprover")
+  ordersReceived  PurchaseOrder[] @relation("OrderReceiver")
+  portionRuns     PortionRun[]
   payments        Payment[]
   movements       StockMovement[]
   events          OrderEvent[]
@@ -219,6 +222,8 @@ model PurchaseOrder {
   approvedAt       DateTime?
   decisionNote     String?
   receivedAt       DateTime?
+  receivedById     String?
+  receivedBy       User?       @relation("OrderReceiver", fields: [receivedById], references: [id])
   createdAt        DateTime    @default(now())
 
   lines     OrderLine[]
@@ -318,6 +323,8 @@ model StockItem {
   batches   StockBatch[]
   movements StockMovement[]
   usedIn    RecipeIngredient[]
+  cutFrom   PortionRun[]       @relation("PortionFrom")
+  cutInto   PortionRun[]       @relation("PortionTo")
 
   @@unique([buyerId, name, unit])
 }
@@ -338,6 +345,7 @@ enum MovementType {
   WASTED
   COUNT_ADJUST
   SOLD // taken out by dishes sold (from recipes)
+  PORTIONED // bulk taken out (-) or pieces added (+) when cutting into portions
 }
 
 model StockMovement {
@@ -414,4 +422,29 @@ model DishSale {
   userId   String
   user     User     @relation(fields: [userId], references: [id])
   at       DateTime @default(now())
+}
+
+/**
+ * ---------------- portion control ----------------
+ */
+
+/**
+ * Bulk stock (e.g. 10 kg chicken) cut into counted, weighed pieces.
+ */
+model PortionRun {
+  id          String    @id @default(cuid())
+  buyerId     String
+  buyer       Business  @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  fromItemId  String
+  fromItem    StockItem @relation("PortionFrom", fields: [fromItemId], references: [id], onDelete: Cascade)
+  toItemId    String
+  toItem      StockItem @relation("PortionTo", fields: [toItemId], references: [id], onDelete: Cascade)
+  inputQty    Float // in the bulk item's unit
+  pieces      Int
+  totalWeight Float? // kg, of all the pieces after cutting
+  cost        Int // Naira value of the bulk taken
+  note        String?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  at          DateTime  @default(now())
 }

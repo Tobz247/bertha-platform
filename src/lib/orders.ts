@@ -14,6 +14,7 @@ export async function loadOrder(id: string) {
       events: { orderBy: { at: "asc" }, include: { actor: true } },
       createdBy: true,
       approvedBy: true,
+      receivedBy: true,
       rating: true,
       request: true,
     },

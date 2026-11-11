@@ -28,7 +28,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         eyebrow={<><span className="mono">{poNo(o.number)}</span> · raised {day(o.createdAt)} by {o.createdBy.name}{o.request ? <> · from <Link href={`/requests/${o.request.id}`}>{rfqNo(o.request.number)}</Link></> : o.source === "PRICE_LIST" ? <> · from <Link href={`/suppliers/${o.supplierId}`}>price list</Link></> : null}</>}
         backHref="/orders"
         backLabel="Orders"
-        action={<div className="badges"><OrderStatusPill status={o.status} />{pl ? <Pill tone={pl.tone}>{pl.label}</Pill> : null}</div>}
+        action={<div className="badges"><OrderStatusPill status={o.status} />{pl ? <Pill tone={pl.tone}>{pl.label}</Pill> : null}{o.receivedAt ? <Link className="btn sec small" href={`/grn/${o.id}`}>Goods received note</Link> : null}</div>}
       />
       <Flash sp={sp} />
 

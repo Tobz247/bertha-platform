@@ -176,3 +176,31 @@ legend { font-size: 13px; font-weight: 600; padding: 0 6px; }
 .auth .card { width: 100%; max-width: 440px; display: grid; gap: 14px; padding: 24px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- printable documents (goods received notes) ---------- */
+.paper-wrap { background: #e9ece9; min-height: 100vh; padding: 20px 16px 40px; color-scheme: light; }
+.paper-bar { max-width: 820px; margin: 0 auto 14px; display: flex; gap: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.paper-bar a { color: #1e6b45; }
+.paper { background: #fff; color: #111; max-width: 820px; margin: 0 auto 20px; padding: 32px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.12); font-size: 13px; }
+.paper h1 { font-size: 22px; margin: 0; }
+.paper .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 20px; margin: 18px 0; }
+.paper .meta div span { display: block; color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.paper table { width: 100%; border-collapse: collapse; }
+.paper th, .paper td { border: 1px solid #bbb; padding: 6px 8px; text-align: left; vertical-align: top; }
+.paper th { background: #f2f2f2; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+.paper td.r, .paper th.r { text-align: right; font-variant-numeric: tabular-nums; }
+.paper tfoot td { font-weight: 700; }
+.paper .short { color: #b3261e; font-weight: 700; }
+.paper .signs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 40px; }
+.paper .signs div { border-top: 1px solid #333; padding-top: 6px; font-size: 12px; }
+.paper .signs div b { display: block; }
+.paper .note { margin-top: 14px; padding: 8px 10px; background: #fff4e0; border: 1px solid #e8c88a; }
+.paper .head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 2px solid #111; padding-bottom: 12px; }
+.paper .head .no { text-align: right; font-family: ui-monospace, monospace; font-size: 15px; font-weight: 700; }
+@media (max-width: 600px) { .paper { padding: 18px 14px; } .paper .signs { grid-template-columns: 1fr; } .paper-table { overflow-x: auto; } }
+@media print {
+  .paper-wrap { background: none; padding: 0; }
+  .paper-bar { display: none; }
+  .paper { box-shadow: none; border-radius: 0; margin: 0; padding: 0; max-width: none; page-break-after: always; }
+  .paper:last-child { page-break-after: auto; }
+}

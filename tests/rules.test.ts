@@ -176,3 +176,22 @@ describe("recipes", () => {
     ).toEqual({ sold: 3, used: 1, wasted: 0.5, unexplained: 0.25 });
   });
 });
+
+describe("portion control", () => {
+  it("works out cost per piece, piece weight and yield", async () => {
+    const { portionResult } = await import("@/lib/rules");
+    expect(portionResult({ inputQty: 10, inputUnit: "kg", pieces: 30, totalWeightKg: 8.4, unitPrice: 4800 })).toEqual({
+      cost: 48000,
+      costPerPiece: 1600,
+      avgPieceGrams: 280,
+      yieldPct: 84,
+    });
+  });
+  it("leaves yield unknown when not weighed or not in kg", async () => {
+    const { portionResult } = await import("@/lib/rules");
+    expect(portionResult({ inputQty: 1, inputUnit: "carton", pieces: 40, totalWeightKg: 9, unitPrice: 50000 }).yieldPct).toBeNull();
+    expect(portionResult({ inputQty: 5, inputUnit: "KG", pieces: 20, totalWeightKg: null, unitPrice: null })).toEqual({
+      cost: 0, costPerPiece: 0, avgPieceGrams: null, yieldPct: null,
+    });
+  });
+});

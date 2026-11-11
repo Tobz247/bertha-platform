@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { recordMovement, updateStockItem } from "@/app/actions/buyer";
+import { cutPortions, recordMovement, updateStockItem } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
 import { PageHead, Pill } from "@/components/ui";
 import { requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, LOCATION_LABEL, naira, poNo, qty } from "@/lib/format";
-import { expiringBatches, isLow, stockOnHand } from "@/lib/rules";
+import { expiringBatches, isKg, isLow, portionResult, stockOnHand } from "@/lib/rules";
 
 export const metadata = { title: "Stock item" };
 
-const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count", SOLD: "Dishes sold" };
+const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count", SOLD: "Dishes sold", PORTIONED: "Portioning" };
 
 export default async function StockItemPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
@@ -20,6 +20,8 @@ export default async function StockItemPage({ params, searchParams }: { params: 
     include: {
       batches: { where: { quantity: { gt: 0 } }, orderBy: [{ expiresAt: "asc" }, { receivedAt: "asc" }] },
       movements: { orderBy: { at: "desc" }, take: 40, include: { user: true, order: true } },
+      cutFrom: { orderBy: { at: "desc" }, take: 20, include: { toItem: true, user: true } },
+      cutInto: { orderBy: { at: "desc" }, take: 20, include: { fromItem: true, user: true } },
     },
   });
   if (!item) notFound();
@@ -67,6 +69,24 @@ export default async function StockItemPage({ params, searchParams }: { params: 
             <div><button className="btn" type="submit">Save</button></div>
           </form>
 
+          {item.unit !== "piece" ? (
+            <form action={cutPortions} className="card stack" id="portion">
+              <input type="hidden" name="itemId" value={item.id} />
+              <h2>Cut into portions</h2>
+              <p className="k" style={{ margin: 0 }}>For meat, chicken and fish: cut, count and weigh the pieces. The kitchen then draws pieces, so any missing piece shows up in counts.</p>
+              <div className="fields">
+                <label className="f">Amount cut ({item.unit})<input type="number" name="inputQty" id="inputQty" min="0" step="any" max={onHand} required /></label>
+                <label className="f">Pieces it made<input type="number" name="pieces" id="pieces" min="1" step="1" required /></label>
+                <label className="f">Weight of all pieces (kg) <span className="hint">after trimming</span><input type="number" name="totalWeight" id="totalWeight" min="0" step="any" /></label>
+              </div>
+              <div className="fields">
+                <label className="f">Name for the pieces<input type="text" name="portionName" id="portionName" defaultValue={item.cutFrom[0]?.toItem.name ?? `${item.name}, pieces`} /></label>
+                <label className="f">Note <span className="hint">optional</span><input type="text" name="note" id="note" placeholder="e.g. cut for Saturday banquet" /></label>
+              </div>
+              <div><button className="btn" type="submit">Record portioning</button></div>
+            </form>
+          ) : null}
+
           <form action={updateStockItem} className="card stack">
             <input type="hidden" name="itemId" value={item.id} />
             <h2>Reorder settings</h2>
@@ -82,6 +102,33 @@ export default async function StockItemPage({ params, searchParams }: { params: 
         </div>
 
         <div className="stack">
+          {item.cutFrom.length || item.cutInto.length ? (
+            <div className="card">
+              <h2 style={{ marginBottom: 8 }}>Portioning</h2>
+              <table className="list">
+                <thead><tr><th>Date</th><th className="r">Cut</th><th className="r">Pieces</th><th className="r">Avg piece</th><th className="r">Yield</th><th className="r">Cost a piece</th></tr></thead>
+                <tbody>
+                  {[...item.cutFrom.map((r) => ({ r, from: item, to: r.toItem })), ...item.cutInto.map((r) => ({ r, from: r.fromItem, to: item }))]
+                    .sort((a, b) => b.r.at.getTime() - a.r.at.getTime())
+                    .map(({ r, from, to }) => {
+                      const x = portionResult({ inputQty: r.inputQty, inputUnit: from.unit, pieces: r.pieces, totalWeightKg: r.totalWeight, unitPrice: null });
+                      return (
+                        <tr key={r.id}>
+                          <td>{day(r.at)}<div className="k">{r.user.name}{from.id !== item.id ? ` · from ${from.name}` : to.id !== item.id ? ` · into ${to.name}` : ""}</div></td>
+                          <td className="r">{qty(r.inputQty)} {from.unit}</td>
+                          <td className="r t">{r.pieces}</td>
+                          <td className="r">{x.avgPieceGrams ? `${x.avgPieceGrams} g` : "—"}</td>
+                          <td className="r">{x.yieldPct != null ? <Pill tone={x.yieldPct < 75 ? "red" : x.yieldPct < 85 ? "amber" : "green"}>{x.yieldPct}%</Pill> : "—"}</td>
+                          <td className="r">{r.cost ? naira(r.cost / r.pieces) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+              {isKg(item.unit) ? <p className="k" style={{ marginBottom: 0 }}>Yield is the weight of the pieces against the weight cut. A falling yield means more is lost to trimming, or pieces are going missing before weighing.</p> : null}
+            </div>
+          ) : null}
+
           <div className="card">
             <h2 style={{ marginBottom: 8 }}>Batches</h2>
             {item.batches.length === 0 ? <p className="k">None in stock.</p> : (
