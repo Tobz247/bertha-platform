@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
 import { parseDateInput, poNo, rfqNo } from "@/lib/format";
 import { notify } from "@/lib/notify";
-import { addDays, dishUsage, needsApproval, orderTotal, round3, startOfDay, takeFromBatches } from "@/lib/rules";
+import { addDays, dishUsage, needsApproval, orderTotal, portionResult, round3, startOfDay, takeFromBatches } from "@/lib/rules";
 
 const LOCATIONS: StorageLocation[] = ["DRY_STORE", "COLD_ROOM", "FREEZER", "OTHER"];
 
@@ -239,6 +239,7 @@ export async function receiveOrder(fd: FormData) {
       data: {
         status: "RECEIVED",
         receivedAt: new Date(),
+        receivedById: user.id,
         events: {
           create: {
             actorId: user.id,
@@ -250,7 +251,7 @@ export async function receiveOrder(fd: FormData) {
   });
   await notify(order.supplierId, `${business.name} confirmed delivery of ${poNo(order.number)}`);
   revalidatePath("/", "layout");
-  back(path, "ok", "Goods recorded and stock updated.");
+  back(path, "ok", "Goods recorded and stock updated. The goods received note for accounts is ready (top right).");
 }
 
 export async function recordPayment(fd: FormData) {
@@ -571,4 +572,51 @@ export async function recordDishSales(fd: FormData) {
       ? `Sales saved, but the records show too little ${short.join(", ")} for them. Count those items to put stock right.`
       : `Sales saved. Ingredients for ${label} taken out of stock.`,
   );
+}
+
+/* ---------------- portion control ---------------- */
+
+export async function cutPortions(fd: FormData) {
+  const { user, business } = await requireBuyer();
+  const id = str(fd, "itemId");
+  const path = `/stock/${id}`;
+  const from = await db.stockItem.findFirst({ where: { id, buyerId: business.id }, include: { batches: { where: { quantity: { gt: 0 } } } } });
+  if (!from) back("/stock", "error", "That item wasn't found.");
+  const inputQty = num(fd, "inputQty");
+  const pieces = Math.round(num(fd, "pieces"));
+  const weightRaw = str(fd, "totalWeight");
+  const totalWeight = weightRaw === "" ? null : num(fd, "totalWeight");
+  const name = str(fd, "portionName") || `${from.name}, pieces`;
+  if (!(inputQty > 0)) back(path, "error", `Enter how much ${from.unit} you cut.`);
+  if (!(pieces > 0)) back(path, "error", "Enter how many pieces it made.");
+  if (totalWeight != null && !(totalWeight > 0)) back(path, "error", "Enter the weight of the pieces in kg, or leave it blank.");
+  const onHand = round3(from.batches.reduce((s, b) => s + b.quantity, 0));
+  if (inputQty > onHand) back(path, "error", `Only ${onHand} ${from.unit} is in stock. Record a delivery or a stock count first.`);
+  if (name.toLowerCase() === from.name.toLowerCase()) back(path, "error", "Give the pieces a different name from the bulk item.");
+
+  const r = portionResult({ inputQty, inputUnit: from.unit, pieces, totalWeightKg: totalWeight, unitPrice: from.lastUnitPrice });
+  const { updates } = takeFromBatches(from.batches, inputQty);
+  const touched = new Set(updates.map((u) => u.id));
+  const expiries = from.batches.filter((b) => touched.has(b.id) && b.expiresAt).map((b) => b.expiresAt!.getTime());
+  const expiresAt = expiries.length ? new Date(Math.min(...expiries)) : null;
+  const detail = `${inputQty} ${from.unit} cut into ${pieces} pieces${totalWeight ? `, ${totalWeight} kg` : ""}`;
+
+  const toId = await db.$transaction(async (tx) => {
+    for (const u of updates) await tx.stockBatch.update({ where: { id: u.id }, data: { quantity: u.quantity } });
+    const to = await tx.stockItem.upsert({
+      where: { buyerId_name_unit: { buyerId: business.id, name, unit: "piece" } },
+      update: from.lastUnitPrice != null ? { lastUnitPrice: r.costPerPiece } : {},
+      create: { buyerId: business.id, name, unit: "piece", location: from.location, lastUnitPrice: from.lastUnitPrice != null ? r.costPerPiece : null },
+    });
+    await tx.stockBatch.create({ data: { itemId: to.id, quantity: pieces, expiresAt } });
+    await tx.stockMovement.create({ data: { itemId: from.id, type: "PORTIONED", quantity: -inputQty, reason: detail, userId: user.id } });
+    await tx.stockMovement.create({ data: { itemId: to.id, type: "PORTIONED", quantity: pieces, reason: `From ${detail}`, userId: user.id } });
+    await tx.portionRun.create({
+      data: { buyerId: business.id, fromItemId: from.id, toItemId: to.id, inputQty, pieces, totalWeight, cost: r.cost, note: str(fd, "note") || null, userId: user.id },
+    });
+    return to.id;
+  });
+  revalidatePath("/stock");
+  const extra = [r.avgPieceGrams ? `about ${r.avgPieceGrams} g a piece` : "", r.yieldPct != null ? `${r.yieldPct}% yield` : "", r.costPerPiece ? `₦${r.costPerPiece.toLocaleString("en-NG")} a piece` : ""].filter(Boolean).join(", ");
+  redirect(`/stock/${toId}?ok=${encodeURIComponent(`${pieces} pieces added to stock${extra ? ` (${extra})` : ""}.`)}`);
 }

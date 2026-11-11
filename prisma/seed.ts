@@ -19,7 +19,7 @@ async function main() {
   if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed in production");
 
   await db.$transaction([
-    db.dishSale.deleteMany(), db.recipeIngredient.deleteMany(), db.recipe.deleteMany(), db.catalogItem.deleteMany(),
+    db.portionRun.deleteMany(), db.dishSale.deleteMany(), db.recipeIngredient.deleteMany(), db.recipe.deleteMany(), db.catalogItem.deleteMany(),
     db.stockMovement.deleteMany(), db.stockBatch.deleteMany(), db.stockItem.deleteMany(),
     db.rating.deleteMany(), db.payment.deleteMany(), db.invoice.deleteMany(), db.orderEvent.deleteMany(),
     db.orderLine.deleteMany(), db.purchaseOrder.deleteMany(), db.quoteLine.deleteMany(), db.quote.deleteMany(),
@@ -114,7 +114,7 @@ async function main() {
   await db.purchaseOrder.create({
     data: {
       buyerId: hotel.id, supplierId: deidei.id, status: "RECEIVED", paymentTermsDays: 30, deliveryFee: 0,
-      deliveryDate: deliveredAt, deliveryAddress: hotel.address, createdById: tobi.id, receivedAt: deliveredAt, createdAt: day(-8),
+      deliveryDate: deliveredAt, deliveryAddress: hotel.address, createdById: tobi.id, receivedAt: deliveredAt, receivedById: chef.id, createdAt: day(-8),
       lines: { create: [
         { product: "Rice, long grain", unit: "50kg bag", quantity: 10, unitPrice: 72000, receivedQty: 10, position: 0 },
         { product: "Beans (oloyin)", unit: "50kg bag", quantity: 4, unitPrice: 85000, receivedQty: 4, position: 1 },
@@ -161,7 +161,7 @@ async function main() {
   const pastOrder = async (buyerId: string, by: string, supplierId: string, ago: number, lines: [string, string, number, number][]) =>
     db.purchaseOrder.create({
       data: {
-        buyerId, supplierId, status: "RECEIVED", deliveryDate: day(-ago), receivedAt: day(-ago), createdAt: day(-ago - 1),
+        buyerId, supplierId, status: "RECEIVED", deliveryDate: day(-ago), receivedAt: day(-ago), receivedById: by, createdAt: day(-ago - 1),
         deliveryAddress: "On file", createdById: by,
         lines: { create: lines.map(([product, unit, quantity, unitPrice], i) => ({ product, unit, quantity, unitPrice, receivedQty: quantity, position: i })) },
         events: { create: [{ actorId: by, message: "Order raised", at: day(-ago - 1) }, { message: "Goods received in full", at: day(-ago) }] },

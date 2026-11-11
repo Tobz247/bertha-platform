@@ -13,6 +13,7 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
     { href: "/requests", label: "Requests", count: quotesWaiting },
     { href: "/suppliers", label: "Suppliers" },
     { href: "/orders", label: "Orders" },
+    { href: "/received", label: "Goods received" },
     ...(canApprove(user) ? [{ href: "/approvals", label: "Approvals", count: approvals }] : []),
     { href: "/stock", label: "Stock" },
     { href: "/recipes", label: "Recipes" },
