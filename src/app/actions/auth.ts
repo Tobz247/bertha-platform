@@ -5,14 +5,17 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { back, str } from "@/lib/flash";
 import { isAdminEmail } from "@/lib/auth";
+import { phoneLogin } from "@/lib/rules";
 import { createSession, destroySession } from "@/lib/session";
 
 export async function login(fd: FormData) {
-  const email = str(fd, "email").toLowerCase();
+  const typed = str(fd, "email").toLowerCase();
+  // Suppliers added by an admin without an email sign in with their phone number.
+  const email = typed.includes("@") ? typed : phoneLogin(typed);
   const password = str(fd, "password");
   const user = await db.user.findUnique({ where: { email } });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-    back("/login", "error", "That email and password don't match. Check them and try again.");
+    back("/login", "error", "That login and password don't match. Check them and try again.");
   }
   if (isAdminEmail(email) && !user.isPlatformAdmin) {
     await db.user.update({ where: { id: user.id }, data: { isPlatformAdmin: true } });

@@ -5,6 +5,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const user = await requireAdmin();
   const items = [
     { href: "/admin", label: "Supplier checks" },
+    { href: "/admin/suppliers/new", label: "Add a supplier" },
     { href: "/admin/categories", label: "Categories" },
     ...(user.business ? [{ href: "/", label: `Back to ${user.business.name}` }] : []),
   ];

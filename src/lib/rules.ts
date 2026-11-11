@@ -252,3 +252,33 @@ export function portionResult(args: { inputQty: number; inputUnit: string; piece
 
 /** GRN number shown to accounts: one per delivery, tied to the purchase order. */
 export const grnNo = (orderNumber: number) => `GRN-${String(orderNumber).padStart(4, "0")}`;
+
+/* ---------------- admin: suppliers added by hand ---------------- */
+
+/**
+ * Reads a price list typed one item per line as "Item, unit, price",
+ * e.g. "Tomatoes, basket, 25,000" or "Rice (long grain), 50kg bag, ₦70000".
+ */
+export function parsePriceLines(text: string) {
+  const items: { name: string; unit: string; price: number }[] = [];
+  const errors: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.match(/^(.+?)\s*[,;]\s*([^,;]+?)\s*[,;]\s*(?:₦|N|NGN)?\s*([\d][\d,]*(?:\.\d+)?)\s*$/i);
+    if (!m) {
+      errors.push(line);
+      continue;
+    }
+    const price = Math.round(Number(m[3].replace(/,/g, "")));
+    if (!(price > 0)) errors.push(line);
+    else items.push({ name: m[1].trim(), unit: m[2].trim(), price });
+  }
+  return { items, errors };
+}
+
+/** A login for a supplier with no email: their phone digits at a placeholder domain. */
+export function phoneLogin(phone: string): string {
+  const digits = phone.replace(/\D/g, "").replace(/^234/, "0");
+  return `${digits || "supplier"}@supplier.bertha`;
+}

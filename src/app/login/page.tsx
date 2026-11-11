@@ -14,7 +14,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <p className="muted" style={{ margin: "4px 0 0" }}>Procurement, orders and stock for food businesses in Abuja.</p>
         </div>
         <Flash sp={sp} />
-        <label className="f">Email<input type="email" name="email" id="email" required autoComplete="email" /></label>
+        <label className="f">Email or phone number<input type="text" name="email" id="email" required autoComplete="username" inputMode="email" /></label>
         <label className="f">Password<input type="password" name="password" id="password" required autoComplete="current-password" /></label>
         <button className="btn" type="submit">Sign in</button>
         <p className="muted" style={{ margin: 0 }}>New here? <Link href="/signup">Create an account</Link></p>

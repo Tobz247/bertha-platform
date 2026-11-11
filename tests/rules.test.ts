@@ -195,3 +195,22 @@ describe("portion control", () => {
     });
   });
 });
+
+describe("admin supplier set-up", () => {
+  it("reads a typed price list", async () => {
+    const { parsePriceLines } = await import("@/lib/rules");
+    expect(parsePriceLines("Tomatoes, basket, 25,000\n\nRice (long grain), 50kg bag, ₦70000\nOnions; bag; N 61,500\nbad line\nPepper, basket, 0")).toEqual({
+      items: [
+        { name: "Tomatoes", unit: "basket", price: 25000 },
+        { name: "Rice (long grain)", unit: "50kg bag", price: 70000 },
+        { name: "Onions", unit: "bag", price: 61500 },
+      ],
+      errors: ["bad line", "Pepper, basket, 0"],
+    });
+  });
+  it("makes a login from a phone number", async () => {
+    const { phoneLogin } = await import("@/lib/rules");
+    expect(phoneLogin("0803 555 0192")).toBe("08035550192@supplier.bertha");
+    expect(phoneLogin("+234 803 555 0192")).toBe("08035550192@supplier.bertha");
+  });
+});
