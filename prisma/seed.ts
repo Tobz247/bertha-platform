@@ -19,7 +19,7 @@ async function main() {
   if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed in production");
 
   await db.$transaction([
-    db.portionRun.deleteMany(), db.dishSale.deleteMany(), db.recipeIngredient.deleteMany(), db.recipe.deleteMany(), db.catalogItem.deleteMany(),
+    db.catalogPriceChange.deleteMany(), db.rateCard.deleteMany(), db.portionRun.deleteMany(), db.dishSale.deleteMany(), db.recipeIngredient.deleteMany(), db.recipe.deleteMany(), db.catalogItem.deleteMany(),
     db.stockMovement.deleteMany(), db.stockBatch.deleteMany(), db.stockItem.deleteMany(),
     db.rating.deleteMany(), db.payment.deleteMany(), db.invoice.deleteMany(), db.orderEvent.deleteMany(),
     db.orderLine.deleteMany(), db.purchaseOrder.deleteMany(), db.quoteLine.deleteMany(), db.quote.deleteMany(),
@@ -154,13 +154,39 @@ async function main() {
   // Supplier price lists
   const list = async (supplierId: string, categoryId: string, items: [string, string, number][], deliveryFee = 0, minOrderValue: number | null = null) => {
     await db.business.update({ where: { id: supplierId }, data: { deliveryFee, minOrderValue } });
-    for (const [name, unit, price] of items) await db.catalogItem.create({ data: { supplierId, categoryId, name, unit, price } });
+    for (const [name, unit, price] of items) {
+      const c = await db.catalogItem.create({ data: { supplierId, categoryId, name, unit, price } });
+      await db.catalogPriceChange.create({ data: { supplierId, itemId: c.id, name, unit, oldPrice: null, newPrice: price, at: day(-60) } });
+    }
+  };
+  // Price history: changes since the items were first listed (latest change ends at today's list price)
+  const changed = async (supplierId: string, name: string, unit: string, steps: [number, number][]) => {
+    const c = await db.catalogItem.findUniqueOrThrow({ where: { supplierId_name_unit: { supplierId, name, unit } } });
+    let prev = steps[0][1];
+    await db.catalogPriceChange.updateMany({ where: { itemId: c.id, oldPrice: null }, data: { newPrice: prev } });
+    for (const [ago, price] of steps.slice(1)) {
+      await db.catalogPriceChange.create({ data: { supplierId, itemId: c.id, name, unit, oldPrice: prev, newPrice: price, at: day(-ago) } });
+      prev = price;
+    }
   };
   await list(gwag.id, veg.id, [["Tomatoes", "basket", 25000], ["Onions", "bag", 60000], ["Pepper (tatashe)", "basket", 18000], ["Plantain", "bunch", 4300]], 3000, 30000);
   await list(karu.id, veg.id, [["Tomatoes", "basket", 23500], ["Onions", "bag", 61000]], 2500);
   await list(karu.id, oils.id, [["Palm oil", "25L jerrycan", 46000], ["Groundnut oil", "25L jerrycan", 58000]]);
   await list(kuje.id, poultry.id, [["Eggs", "crate", 5600], ["Whole chicken (frozen)", "kg", 4700]], 2000);
   await list(deidei.id, grains.id, [["Rice, long grain", "50kg bag", 70000], ["Beans (oloyin)", "50kg bag", 84000]], 0, 100000);
+
+  await changed(gwag.id, "Tomatoes", "basket", [[60, 21000], [25, 22000], [6, 25000]]);
+  await changed(gwag.id, "Pepper (tatashe)", "basket", [[60, 15000], [12, 18000]]);
+  await changed(karu.id, "Onions", "bag", [[60, 64000], [5, 61000]]);
+  await changed(kuje.id, "Eggs", "crate", [[60, 5200], [3, 5600]]);
+  await db.business.update({
+    where: { id: gwag.id },
+    data: { supplierKind: "Farmer", yearsInBusiness: 6, deliveryAreas: "Gwagwalada,Garki,Wuse,Maitama", deliveryDays: "Mon,Wed,Fri", orderNoticeDays: 1, paymentTerms: "CASH,TRANSFER,7", coldChain: false, hygieneCert: true, weeklyCapacity: "40 baskets of tomatoes, 30 bags of onions", references: "Grand Square kitchen, Mrs Eze 0803 111 2222" },
+  });
+  await db.business.update({
+    where: { id: kuje.id },
+    data: { supplierKind: "Farmer", yearsInBusiness: 9, deliveryAreas: "Kuje,Garki,Wuse,Maitama,Asokoro", deliveryDays: "Tue,Thu,Sat", orderNoticeDays: 2, paymentTerms: "TRANSFER,14,30", coldChain: true, hygieneCert: true, nafdacNumber: "A1-1234" },
+  });
 
   // A second buyer, so the going rate on Bertha has more than one business behind it
   const resto = await db.business.create({

@@ -1,9 +1,12 @@
-import { addCatalogItem, updateCatalogItem, updateOrderTerms } from "@/app/actions/supplier";
+import { addCatalogItem, deleteRateCard, updateCatalogItem, updateOrderTerms, uploadRateCard } from "@/app/actions/supplier";
 import { Flash } from "@/components/Flash";
+import { ChangeTag, ConsistencyPanel } from "@/components/PriceConsistency";
+import { RateCardList, RateCardUpload } from "@/components/RateCards";
 import { Empty, PageHead, Pill } from "@/components/ui";
 import { requireSupplier } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, naira, qty } from "@/lib/format";
+import { supplierConsistency } from "@/lib/consistency";
 import { marketPrices } from "@/lib/prices";
 import { pctDiff, priceKey } from "@/lib/rules";
 
@@ -12,11 +15,15 @@ export const metadata = { title: "Price list" };
 export default async function PriceList({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
   const { business } = await requireSupplier();
-  const [items, categories, market] = await Promise.all([
+  const [items, categories, market, consistency, rateCards] = await Promise.all([
     db.catalogItem.findMany({ where: { supplierId: business.id }, include: { category: true }, orderBy: [{ category: { name: "asc" } }, { name: "asc" }] }),
     db.category.findMany({ where: { suppliers: { some: { id: business.id } } }, orderBy: { name: "asc" } }),
     marketPrices(),
+    supplierConsistency([business.id]),
+    db.rateCard.findMany({ where: { supplierId: business.id }, omit: { data: true }, orderBy: { createdAt: "desc" } }),
   ]);
+  const report = consistency.get(business.id);
+  const byKey = new Map(report?.items.map((r) => [r.key, r]));
   const units = [...new Set(categories.flatMap((c) => c.units.split(",").map((u) => u.trim())).filter(Boolean))];
 
   return (
@@ -28,7 +35,7 @@ export default async function PriceList({ searchParams }: { searchParams: Promis
       {items.length === 0 ? <Empty>Add the items you sell most often. Keep prices current: buyers see when you last updated each one.</Empty> : (
         <div className="card table-wrap" style={{ padding: 0, marginBottom: 20 }}>
           <table className="list">
-            <thead><tr><th>Item</th><th className="r">Price (₦)</th><th className="r">Min. qty</th><th>In stock</th><th>Going rate</th><th /></tr></thead>
+            <thead><tr><th>Item</th><th className="r">Price (₦)</th><th className="r">Min. qty</th><th>In stock</th><th>Last change</th><th>Going rate</th><th /></tr></thead>
             <tbody>
               {items.map((i) => {
                 const m = market.get(priceKey(i.name, i.unit));
@@ -40,6 +47,7 @@ export default async function PriceList({ searchParams }: { searchParams: Promis
                     <td className="r"><input form={formId} type="number" name="price" min="1" step="1" defaultValue={i.price} aria-label={`Price of ${i.name}`} style={{ width: 110, textAlign: "right" }} /></td>
                     <td className="r"><input form={formId} type="number" name="minQty" min="0" step="any" defaultValue={i.minQty || ""} aria-label={`Minimum quantity of ${i.name}`} style={{ width: 80, textAlign: "right" }} /></td>
                     <td><input form={formId} type="checkbox" name="available" defaultChecked={i.available} aria-label={`${i.name} in stock`} style={{ width: 18, height: 18, accentColor: "var(--brand)" }} /></td>
+                    <td><ChangeTag item={byKey.get(priceKey(i.name, i.unit))} /></td>
                     <td>{m ? <>{naira(m.median)} {diff != null && Math.abs(diff) > 2 ? <Pill tone={diff > 10 ? "red" : diff < 0 ? "green" : "grey"}>{diff > 0 ? "+" : ""}{diff}%</Pill> : null}</> : <span className="k">—</span>}</td>
                     <td>
                       <form id={formId} action={updateCatalogItem} className="btns" style={{ flexWrap: "nowrap" }}>
@@ -85,6 +93,20 @@ export default async function PriceList({ searchParams }: { searchParams: Promis
           <div><button className="btn sec" type="submit">Save terms</button></div>
           {items.length ? <p className="k" style={{ margin: 0 }}>{items.filter((i) => i.available).length} of {items.length} items in stock{items.some((i) => i.minQty) ? ` · ${items.filter((i) => i.minQty).map((i) => `${i.name} min ${qty(i.minQty)}`).slice(0, 2).join(", ")}` : ""}.</p> : null}
         </form>
+      </div>
+
+      <div className="stack" style={{ marginTop: 16 }}>
+        <div className="card stack">
+          <h2>Rate cards</h2>
+          <p className="k" style={{ margin: 0 }}>Upload your latest rate card so buyers can see it. A CSV file can update the prices above in one go.</p>
+          <RateCardList cards={rateCards} remove={deleteRateCard} />
+          <RateCardUpload action={uploadRateCard} />
+        </div>
+        <div className="card stack" style={{ minWidth: 0 }}>
+          <h2>Price consistency</h2>
+          <p className="k" style={{ margin: 0 }}>Buyers see this. Prices that stay steady, and quotes that match your list, keep your score high.</p>
+          <ConsistencyPanel report={report} differences={report?.differences ?? []} />
+        </div>
       </div>
     </>
   );

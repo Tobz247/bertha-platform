@@ -7,21 +7,9 @@ import { requireAdmin } from "@/lib/auth";
 import { isRole, roleLabel } from "@/lib/roles";
 import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
-import { parsePriceLines, phoneLogin } from "@/lib/rules";
-
-/** Add price-list items for a supplier, skipping any it already lists. Returns how many were added. */
-async function addPriceItems(supplierId: string, text: string) {
-  const { items, errors } = parsePriceLines(text);
-  const cats = await db.category.findMany({ where: { suppliers: { some: { id: supplierId } } }, select: { id: true } });
-  let added = 0;
-  for (const i of items) {
-    const exists = await db.catalogItem.findUnique({ where: { supplierId_name_unit: { supplierId, name: i.name, unit: i.unit } } });
-    if (exists) continue;
-    await db.catalogItem.create({ data: { supplierId, name: i.name, unit: i.unit, price: i.price, categoryId: cats.length === 1 ? cats[0].id : null } });
-    added++;
-  }
-  return { added, errors };
-}
+import { logPriceChange } from "@/lib/consistency";
+import { phoneLogin } from "@/lib/rules";
+import { applyPriceLines, criteriaFromForm, saveRateCard } from "@/lib/supplier-data";
 
 export async function adminCreateSupplier(fd: FormData) {
   const admin = await requireAdmin();
@@ -62,12 +50,13 @@ export async function adminCreateSupplier(fd: FormData) {
           bankAccountNumber: str(fd, "bankAccountNumber") || null,
           bankAccountName: str(fd, "bankAccountName") || null,
           deliveryFee: Math.max(0, Math.round(num(fd, "deliveryFee") || 0)),
+          ...criteriaFromForm(fd),
           categories: { connect: categoryIds.map((id) => ({ id })) },
         },
       },
     },
   });
-  const { added, errors } = await addPriceItems(user.businessId!, str(fd, "priceList"));
+  const { added, errors } = await applyPriceLines(user.businessId!, str(fd, "priceList"), { updateExisting: false, source: "ADMIN" });
   await audit(admin, "admin.supplier_added", `${admin.name} added supplier ${businessName} (login ${email}, ${added} price items)`, { businessId: user.businessId, targetType: "Business", targetId: user.businessId! });
   const msg = [
     `${businessName} added and verified. They can sign in with ${email} and the temporary password you set.`,
@@ -87,7 +76,7 @@ async function adminSupplier(fd: FormData) {
 
 export async function adminAddPriceItems(fd: FormData) {
   const { admin, s, path } = await adminSupplier(fd);
-  const { added, errors } = await addPriceItems(s.id, str(fd, "priceList"));
+  const { added, errors } = await applyPriceLines(s.id, str(fd, "priceList"), { updateExisting: false, source: "ADMIN" });
   if (added) await audit(admin, "admin.prices_added", `${admin.name} added ${added} price-list item${added > 1 ? "s" : ""} for ${s.name}`, { businessId: s.id, targetType: "Business", targetId: s.id });
   if (errors.length) back(path, "error", `${added} added. Couldn't read: “${errors.slice(0, 3).join("”, “")}”. Write each line as Item, unit, price.`);
   back(path, "ok", added ? `${added} item${added > 1 ? "s" : ""} added to the price list.` : "Nothing new to add: those items are already listed.");
@@ -106,6 +95,7 @@ export async function adminUpdatePriceItem(fd: FormData) {
   if (!(price > 0)) back(path, "error", "Enter a price in Naira.");
   const available = str(fd, "available") === "on";
   await db.catalogItem.update({ where: { id: item.id }, data: { price, available } });
+  await logPriceChange({ supplierId: s.id, itemId: item.id, name: item.name, unit: item.unit, oldPrice: item.price, newPrice: price, source: "ADMIN" });
   if (price !== item.price || available !== item.available) {
     const changes = [price !== item.price ? `price ₦${item.price.toLocaleString("en-NG")} → ₦${price.toLocaleString("en-NG")}` : "", available !== item.available ? (available ? "now available" : "marked unavailable") : ""].filter(Boolean).join(", ");
     await audit(admin, "admin.price_changed", `${admin.name} changed ${s.name}'s ${item.name} (${item.unit}): ${changes}`, { businessId: s.id, targetType: "CatalogItem", targetId: item.id });
@@ -149,4 +139,27 @@ export async function adminUpdateUser(fd: FormData) {
     targetId: target.id,
   });
   back(path, "ok", `Done: ${what}.`);
+}
+
+export async function adminUpdateCriteria(fd: FormData) {
+  const { admin, s, path } = await adminSupplier(fd);
+  await db.business.update({ where: { id: s.id }, data: { cacNumber: str(fd, "cacNumber") || null, ...criteriaFromForm(fd) } });
+  await audit(admin, "admin.supplier_details", `${admin.name} updated ${s.name}'s supplier details`, { businessId: s.id, targetType: "Business", targetId: s.id });
+  back(path, "ok", "Supplier details saved.");
+}
+
+export async function adminUploadRateCard(fd: FormData) {
+  const { admin, s, path } = await adminSupplier(fd);
+  const r = await saveRateCard(fd, s.id, `${admin.name} (Bertha)`);
+  if (r.ok) await audit(admin, "admin.rate_card_uploaded", `${admin.name} uploaded a rate card for ${s.name}. ${r.ok}`, { businessId: s.id, targetType: "Business", targetId: s.id });
+  if ("error" in r && r.error) back(path, "error", r.error);
+  back(path, "ok", r.ok!);
+}
+
+export async function adminDeleteRateCard(fd: FormData) {
+  const { admin, s, path } = await adminSupplier(fd);
+  const card = await db.rateCard.findFirst({ where: { id: str(fd, "rateCardId"), supplierId: s.id }, select: { fileName: true } });
+  if (card) await audit(admin, "admin.rate_card_removed", `${admin.name} removed rate card ${card.fileName} from ${s.name}`, { businessId: s.id, targetType: "Business", targetId: s.id });
+  await db.rateCard.deleteMany({ where: { id: str(fd, "rateCardId"), supplierId: s.id } });
+  back(path, "ok", "Rate card removed.");
 }

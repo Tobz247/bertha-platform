@@ -51,20 +51,36 @@ model Business {
   minOrderValue     Int? // suppliers: smallest price-list order they accept (Naira)
   createdAt         DateTime           @default(now())
 
+  // suppliers: criteria buyers and admins use to judge them
+  supplierKind    String? // Farmer, Wholesaler, Distributor, Manufacturer, Market trader, Importer
+  yearsInBusiness Int?
+  deliveryAreas   String? // comma-separated Abuja areas they deliver to
+  deliveryDays    String? // comma-separated, e.g. "Mon,Tue,Wed"
+  orderNoticeDays Int? // notice needed before delivery; 0 = same day
+  paymentTerms    String? // comma-separated: CASH, TRANSFER, 7, 14, 30 (days of credit)
+  coldChain       Boolean @default(false) // refrigerated storage or delivery
+  nafdacNumber    String?
+  tin             String? // tax identification number
+  hygieneCert     Boolean @default(false) // food handler / hygiene certificate
+  weeklyCapacity  String? // what they can supply in a week, in their own words
+  references      String? // other hotels or restaurants they supply
+
   users          User[]
-  categories     Category[]      @relation("SupplierCategories")
-  requests       Request[]       @relation("BuyerRequests")
+  categories     Category[]           @relation("SupplierCategories")
+  requests       Request[]            @relation("BuyerRequests")
   invites        RequestInvite[]
   quotes         Quote[]
-  buyerOrders    PurchaseOrder[] @relation("BuyerOrders")
-  supplierOrders PurchaseOrder[] @relation("SupplierOrders")
+  buyerOrders    PurchaseOrder[]      @relation("BuyerOrders")
+  supplierOrders PurchaseOrder[]      @relation("SupplierOrders")
   stockItems     StockItem[]
-  ratingsGiven   Rating[]        @relation("RatingBuyer")
-  ratingsGot     Rating[]        @relation("RatingSupplier")
+  ratingsGiven   Rating[]             @relation("RatingBuyer")
+  ratingsGot     Rating[]             @relation("RatingSupplier")
   catalogue      CatalogItem[]
   recipes        Recipe[]
   portionRuns    PortionRun[]
   auditEntries   AuditLog[]
+  priceChanges   CatalogPriceChange[]
+  rateCards      RateCard[]
 }
 
 model User {
@@ -390,7 +406,48 @@ model CatalogItem {
   updatedAt  DateTime  @updatedAt
   createdAt  DateTime  @default(now())
 
+  priceChanges CatalogPriceChange[]
+
   @@unique([supplierId, name, unit])
+}
+
+/**
+ * Every price a supplier puts on their list, so buyers can see how steady their prices are.
+ * Kept (with the item's name and unit) after an item is removed.
+ */
+model CatalogPriceChange {
+  id         String       @id @default(cuid())
+  supplierId String
+  supplier   Business     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  itemId     String?
+  item       CatalogItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  name       String
+  unit       String
+  oldPrice   Int? // null when the item was first added
+  newPrice   Int
+  source     String       @default("PRICE_LIST") // PRICE_LIST, ADMIN, RATE_CARD
+  at         DateTime     @default(now())
+
+  @@index([supplierId, at])
+}
+
+/**
+ * A supplier's rate card (PDF, photo or spreadsheet), stored in the database.
+ */
+model RateCard {
+  id         String    @id @default(cuid())
+  supplierId String
+  supplier   Business  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  fileName   String
+  mimeType   String
+  size       Int
+  data       Bytes
+  validFrom  DateTime?
+  note       String?
+  uploadedBy String // name of whoever uploaded it
+  createdAt  DateTime  @default(now())
+
+  @@index([supplierId, createdAt])
 }
 
 /**
