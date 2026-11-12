@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deliveryMatch, issueProgress, itemKey, kitchenNo, linePlan, remainingOf } from "@/lib/kitchen-rules";
+import { areaOnHand, deliveryMatch, issueProgress, itemKey, kitchenNo, linePlan, movedBatches, remainingOf, takeFromAreas } from "@/lib/kitchen-rules";
 import { usageBreakdown } from "@/lib/rules";
 
 describe("kitchen requests", () => {
@@ -47,7 +47,37 @@ describe("matching a delivery", () => {
 });
 
 describe("usage", () => {
-  it("counts store issues as kitchen use", () => {
-    expect(usageBreakdown([{ type: "ISSUED", quantity: -3 }, { type: "USED", quantity: -1 }]).used).toBe(4);
+  it("doesn't count moving goods to the kitchen as use", () => {
+    expect(usageBreakdown([{ type: "ISSUED", quantity: -3 }, { type: "USED", quantity: -1 }]).used).toBe(1);
+  });
+});
+
+describe("store and kitchen stock", () => {
+  const d = (s: string) => new Date(s + "T12:00:00");
+  const batches = [
+    { id: "s1", area: "STORE", quantity: 10, receivedAt: d("2026-11-01"), expiresAt: d("2026-11-20") },
+    { id: "s2", area: "STORE", quantity: 5, receivedAt: d("2026-11-05"), expiresAt: d("2026-11-15") },
+    { id: "k1", area: "KITCHEN", quantity: 3, receivedAt: d("2026-11-02"), expiresAt: null },
+  ];
+  it("splits on-hand by area", () => {
+    expect(areaOnHand(batches, "STORE")).toBe(15);
+    expect(areaOnHand(batches, "KITCHEN")).toBe(3);
+  });
+  it("takes kitchen stock first for dishes sold, then the store", () => {
+    const r = takeFromAreas(batches, 5, ["KITCHEN", "STORE"]);
+    expect(r.updates).toEqual([{ id: "k1", quantity: 0 }, { id: "s2", quantity: 3 }]);
+    expect(r.shortfall).toBe(0);
+  });
+  it("only touches the store when issuing", () => {
+    const r = takeFromAreas(batches, 20, ["STORE"]);
+    expect(r.shortfall).toBe(5);
+    expect(r.updates.map((u) => u.id)).toEqual(["s2", "s1"]);
+  });
+  it("keeps use-by dates when moving goods to the kitchen", () => {
+    const r = takeFromAreas(batches, 7, ["STORE"]);
+    expect(movedBatches(batches, r.updates)).toEqual([
+      { quantity: 5, expiresAt: d("2026-11-15"), receivedAt: d("2026-11-05") },
+      { quantity: 2, expiresAt: d("2026-11-20"), receivedAt: d("2026-11-01") },
+    ]);
   });
 });

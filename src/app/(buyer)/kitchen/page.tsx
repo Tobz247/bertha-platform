@@ -33,6 +33,7 @@ export default async function KitchenRequests({ searchParams }: { searchParams: 
       />
       <Flash sp={sp} />
       <div className="btns" style={{ marginBottom: 14 }}>
+        <Link className="btn small sec" href="/kitchen/stock">Kitchen stock</Link>
         {TABS.map((t) => <Link key={t.key} className={`btn small ${t.key === tab.key ? "" : "sec"}`} href={`/kitchen?show=${t.key}`}>{t.label}</Link>)}
       </div>
       {list.length === 0 ? <Empty>{tab.key === "open" ? "No open kitchen requests." : "No kitchen requests yet."} {can(user, "kitchen_request") ? <Link href="/kitchen/new">Raise one</Link> : null}</Empty> : null}

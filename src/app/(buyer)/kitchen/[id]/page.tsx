@@ -96,7 +96,7 @@ export default async function KitchenRequestPage({ params, searchParams }: { par
             <form action={issueFromStore} className="card stack" id="issue">
               <input type="hidden" name="kitchenRequestId" value={k.id} />
               <h2>Issue from the store</h2>
-              <p className="k" style={{ margin: 0 }}>Enter what you hand over now. Stock goes down by these amounts, oldest batch first.</p>
+              <p className="k" style={{ margin: 0 }}>Enter what you hand over now. It moves from the store to <Link href="/kitchen/stock">kitchen stock</Link>, oldest batch first, and comes out when dishes sold or kitchen use are recorded.</p>
               <div className="fields">
                 {canIssue.map(({ l, st, plan }) => (
                   <label key={l.id} className="f">{l.product} ({l.unit}) <span className="hint">{qty(plan.remaining)} to go, {qty(st!.onHand)} in store</span>

@@ -6,16 +6,18 @@ import { PageHead, Pill } from "@/components/ui";
 import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, LOCATION_LABEL, naira, poNo, qty } from "@/lib/format";
+import { areaOnHand } from "@/lib/kitchen-rules";
 import { expiringBatches, isKg, isLow, portionResult, stockOnHand } from "@/lib/rules";
 
 export const metadata = { title: "Stock item" };
 
-const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count", SOLD: "Dishes sold", PORTIONED: "Portioning", ISSUED: "Issued from store" };
+const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count", SOLD: "Dishes sold", PORTIONED: "Portioning", ISSUED: "Issued to kitchen" };
 
 export default async function StockItemPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const { user, business } = await requireBuyer();
   const canEdit = can(user, "stock");
+  const kitchenOnly = !canEdit && can(user, "kitchen_request");
   const item = await db.stockItem.findFirst({
     where: { id, buyerId: business.id },
     include: {
@@ -27,6 +29,8 @@ export default async function StockItemPage({ params, searchParams }: { params: 
   });
   if (!item) notFound();
   const onHand = stockOnHand(item.batches);
+  const inStore = areaOnHand(item.batches, "STORE");
+  const inKitchen = areaOnHand(item.batches, "KITCHEN");
   const expiring = new Set(expiringBatches(item.batches, 3).map((b) => b.id));
 
   return (
@@ -42,11 +46,11 @@ export default async function StockItemPage({ params, searchParams }: { params: 
       <div className="grid2">
         <div className="stack">
           <div className="card row">
-            <div><div className="k">On hand</div><div className="big">{qty(onHand)} {item.unit}</div></div>
+            <div><div className="k">On hand</div><div className="big">{qty(onHand)} {item.unit}</div>{inKitchen > 0 ? <div className="k">{qty(inStore)} in the store · {qty(inKitchen)} issued to the kitchen</div> : null}</div>
             <div style={{ textAlign: "right" }} className="k">{item.lastUnitPrice ? `Last bought at ${naira(item.lastUnitPrice)}/${item.unit}` : "No purchase price yet"}<br />{isLow(onHand, item.reorderLevel) ? <Pill tone="red">Low</Pill> : null}</div>
           </div>
 
-          {canEdit ? <>
+          {canEdit || kitchenOnly ? (
           <form action={recordMovement} className="card stack">
             <input type="hidden" name="itemId" value={item.id} />
             <h2>Record a change</h2>
@@ -55,10 +59,18 @@ export default async function StockItemPage({ params, searchParams }: { params: 
                 <select name="type" id="type" defaultValue="USED">
                   <option value="USED">Used in the kitchen</option>
                   <option value="WASTED">Wasted</option>
-                  <option value="ADDED">Bought or added</option>
+                  {canEdit ? <option value="ADDED">Bought or added (goes into the store)</option> : null}
                   <option value="COUNT">Stock count (set the real amount)</option>
                 </select>
               </label>
+              {kitchenOnly ? <input type="hidden" name="area" value="KITCHEN" /> : (
+                <label className="f">Where
+                  <select name="area" id="area" defaultValue={inKitchen > 0 ? "KITCHEN" : "STORE"}>
+                    <option value="STORE">Store</option>
+                    <option value="KITCHEN">Kitchen</option>
+                  </select>
+                </label>
+              )}
               <label className="f">Quantity ({item.unit})<input type="number" name="quantity" id="quantity" min="0" step="any" required /></label>
             </div>
             <div className="fields">
@@ -67,9 +79,12 @@ export default async function StockItemPage({ params, searchParams }: { params: 
               </label>
               <label className="f">Use by <span className="hint">if added</span><input type="date" name="expiresAt" id="expiresAt" /></label>
             </div>
-            <p className="k" style={{ margin: 0 }}>Usage and waste come out of the batch that expires first.</p>
+            <p className="k" style={{ margin: 0 }}>Usage and waste come out of the batch that expires first, from the place you choose (then the other one if it runs out). A count sets the amount in that place only.</p>
             <div><button className="btn" type="submit">Save</button></div>
           </form>
+          ) : null}
+
+          {canEdit ? <>
 
           {item.unit !== "piece" ? (
             <form action={cutPortions} className="card stack" id="portion">
@@ -101,7 +116,7 @@ export default async function StockItemPage({ params, searchParams }: { params: 
             </div>
             <div><button className="btn sec" type="submit">Save settings</button></div>
           </form>
-          </> : <div className="alert info">Your role can see stock but not change it. A store keeper or manager records changes.</div>}
+          </> : kitchenOnly ? null : <div className="alert info">Your role can see stock but not change it. A store keeper or manager records changes.</div>}
         </div>
 
         <div className="stack">
@@ -136,8 +151,8 @@ export default async function StockItemPage({ params, searchParams }: { params: 
             <h2 style={{ marginBottom: 8 }}>Batches</h2>
             {item.batches.length === 0 ? <p className="k">None in stock.</p> : (
               <table className="list">
-                <thead><tr><th>Received</th><th>Use by</th><th className="r">Left</th></tr></thead>
-                <tbody>{item.batches.map((b) => <tr key={b.id}><td>{day(b.receivedAt)}</td><td>{b.expiresAt ? day(b.expiresAt) : "—"} {expiring.has(b.id) ? <Pill tone="amber">Soon</Pill> : null}</td><td className="r">{qty(b.quantity)}</td></tr>)}</tbody>
+                <thead><tr><th>Received</th><th>Where</th><th>Use by</th><th className="r">Left</th></tr></thead>
+                <tbody>{item.batches.map((b) => <tr key={b.id}><td>{day(b.receivedAt)}</td><td>{b.area === "KITCHEN" ? "Kitchen" : "Store"}</td><td>{b.expiresAt ? day(b.expiresAt) : "—"} {expiring.has(b.id) ? <Pill tone="amber">Soon</Pill> : null}</td><td className="r">{qty(b.quantity)}</td></tr>)}</tbody>
               </table>
             )}
           </div>
@@ -148,7 +163,7 @@ export default async function StockItemPage({ params, searchParams }: { params: 
                 {item.movements.map((m) => (
                   <tr key={m.id}>
                     <td>{MOVE_LABEL[m.type]}{m.reason ? <span className="k"> · {m.reason}</span> : null}{m.order ? <> · <Link className="mono" href={`/orders/${m.order.id}`}>{poNo(m.order.number)}</Link></> : null}{m.kitchenRequest ? <> · <Link href={`/kitchen/${m.kitchenRequest.id}`}>view request</Link></> : null}<div className="k">{day(m.at)} · {m.user.name}</div></td>
-                    <td className="r" style={{ color: m.quantity < 0 ? "var(--red)" : undefined }}>{m.quantity > 0 ? "+" : ""}{qty(m.quantity)}</td>
+                    {m.type === "ISSUED" ? <td className="r k">{qty(-m.quantity)} to kitchen</td> : <td className="r" style={{ color: m.quantity < 0 ? "var(--red)" : undefined }}>{m.quantity > 0 ? "+" : ""}{qty(m.quantity)}</td>}
                   </tr>
                 ))}
               </tbody>

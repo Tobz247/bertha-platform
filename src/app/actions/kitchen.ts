@@ -7,8 +7,8 @@ import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
 import { parseDateInput, poNo } from "@/lib/format";
-import { itemKey, kitchenNo, issueProgress, remainingOf } from "@/lib/kitchen-rules";
-import { round3, startOfDay, takeFromBatches } from "@/lib/rules";
+import { areaOnHand, itemKey, kitchenNo, issueProgress, movedBatches, remainingOf, takeFromAreas } from "@/lib/kitchen-rules";
+import { round3, startOfDay } from "@/lib/rules";
 
 /* ---------------- kitchen raises a request ---------------- */
 
@@ -122,7 +122,7 @@ export async function issueFromStore(fd: FormData) {
   for (const p of plan) need.set(p.item!.id, round3((need.get(p.item!.id) ?? 0) + p.q));
   for (const [itemId, q] of need) {
     const it = byId.get(itemId)!;
-    const onHand = round3(it.batches.reduce((s, b) => s + b.quantity, 0));
+    const onHand = areaOnHand(it.batches, "STORE");
     if (q > onHand + 1e-9) back(path, "error", `Only ${onHand} ${it.unit} of ${it.name} is in the store. Issue less, or count the stock first.`);
   }
 
@@ -131,12 +131,17 @@ export async function issueFromStore(fd: FormData) {
     const batches = new Map(items.map((i) => [i.id, i.batches.map((b) => ({ ...b }))]));
     for (const p of plan) {
       const item = p.item!;
-      const { updates } = takeFromBatches(batches.get(item.id)!, p.q);
+      // Goods move from the store to the kitchen: still stock (and still counted as on hand)
+      // until the kitchen uses them, sells them in dishes or wastes them.
+      const current = batches.get(item.id)!;
+      const { updates } = takeFromAreas(current, p.q, ["STORE"]);
+      const moved = movedBatches(current, updates);
       for (const u of updates) {
         await tx.stockBatch.update({ where: { id: u.id }, data: { quantity: u.quantity } });
-        const b = batches.get(item.id)!.find((x) => x.id === u.id);
+        const b = current.find((x) => x.id === u.id);
         if (b) b.quantity = u.quantity;
       }
+      for (const m of moved) await tx.stockBatch.create({ data: { itemId: item.id, area: "KITCHEN", ...m } });
       await tx.stockMovement.create({
         data: { itemId: item.id, type: "ISSUED", quantity: -p.q, reason, userId: user.id, kitchenRequestId: kr.id },
       });
@@ -150,7 +155,7 @@ export async function issueFromStore(fd: FormData) {
   });
   await audit(user, "stock.issued", `${user.name} issued ${plan.map((p) => `${p.q} ${p.l.unit} ${p.l.product}`).join(", ")} to ${kr.department} on ${kitchenNo(kr.number)}`.slice(0, 500), { targetType: "KitchenRequest", targetId: id });
   revalidatePath("/", "layout");
-  back(path, "ok", `Issued ${plan.length} item${plan.length > 1 ? "s" : ""} to ${kr.department}. Stock has gone down by those amounts.`);
+  back(path, "ok", `Issued ${plan.length} item${plan.length > 1 ? "s" : ""} to ${kr.department}. They now count as kitchen stock, and come out when dishes sold or kitchen use are recorded.`);
 }
 
 export async function closeKitchenRequest(fd: FormData) {
