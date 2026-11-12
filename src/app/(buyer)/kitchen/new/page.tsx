@@ -29,7 +29,7 @@ export default async function NewKitchenRequest({ searchParams }: { searchParams
         </div>
         <fieldset>
           <legend>Items</legend>
-          <KitchenLineEditor stock={stock.map((s) => ({ name: s.name, unit: s.unit, onHand: s.onHand }))} units={units} />
+          <KitchenLineEditor stock={stock.map((s) => ({ name: s.name, unit: s.unit, onHand: s.inStore }))} units={units} />
         </fieldset>
         <label className="f">Note for procurement <span className="hint">optional: what it&apos;s for, e.g. Saturday wedding, 200 guests</span><textarea name="note" id="note" /></label>
         <div><button className="btn" type="submit">Send to procurement</button></div>

@@ -371,8 +371,15 @@ model StockBatch {
   itemId     String
   item       StockItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   quantity   Float // remaining
+  area       StockArea @default(STORE) // main store, or already issued to the kitchen
   receivedAt DateTime  @default(now())
   expiresAt  DateTime?
+}
+
+/// Where a batch sits: in the main store, or issued to the kitchen (still stock, not yet used).
+enum StockArea {
+  STORE
+  KITCHEN
 }
 
 enum MovementType {
@@ -383,7 +390,7 @@ enum MovementType {
   COUNT_ADJUST
   SOLD // taken out by dishes sold (from recipes)
   PORTIONED // bulk taken out (-) or pieces added (+) when cutting into portions
-  ISSUED // given out from the store to the kitchen (or another section) against a kitchen request
+  ISSUED // moved from the store to the kitchen against a kitchen request (still stock until used or sold)
 }
 
 model StockMovement {

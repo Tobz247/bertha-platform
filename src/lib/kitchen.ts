@@ -1,7 +1,6 @@
 import "server-only";
 import { db } from "./db";
-import { itemKey } from "./kitchen-rules";
-import { stockOnHand } from "./rules";
+import { areaOnHand, itemKey } from "./kitchen-rules";
 
 export const KITCHEN_STATUS: Record<string, { label: string; tone: "amber" | "blue" | "green" | "red" | "grey" }> = {
   SUBMITTED: { label: "Waiting for review", tone: "amber" },
@@ -24,8 +23,10 @@ export async function loadKitchenRequest(id: string, buyerId: string) {
   });
 }
 
-/** Stock items of a buyer keyed by name and unit, with what is on hand. */
+/** Stock items of a buyer keyed by name and unit. `onHand` is what is in the store (what can be issued). */
 export async function stockByKey(buyerId: string) {
   const items = await db.stockItem.findMany({ where: { buyerId }, include: { batches: { where: { quantity: { gt: 0 } } } } });
-  return new Map(items.map((i) => [itemKey(i.name, i.unit), { id: i.id, name: i.name, unit: i.unit, onHand: stockOnHand(i.batches) }]));
+  return new Map(
+    items.map((i) => [itemKey(i.name, i.unit), { id: i.id, name: i.name, unit: i.unit, onHand: areaOnHand(i.batches, "STORE"), inKitchen: areaOnHand(i.batches, "KITCHEN") }]),
+  );
 }

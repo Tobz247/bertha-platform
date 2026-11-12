@@ -36,7 +36,7 @@ export default async function Stock({ searchParams }: { searchParams: Promise<Re
                     <td>{i.low ? <input type="checkbox" name="items" value={i.id} id={`pick-${i.id}`} aria-label={`Reorder ${i.name}`} style={{ width: 18, height: 18, accentColor: "var(--brand)" }} /> : null}</td>
                     <td><Link href={`/stock/${i.id}`} className="t">{i.name}</Link><div className="k">{i.unit}</div></td>
                     <td className="k">{LOCATION_LABEL[i.location]}</td>
-                    <td className="r t">{qty(i.onHand)}</td>
+                    <td className="r t">{qty(i.onHand)}{i.inKitchen > 0 ? <div className="k" style={{ fontWeight: 400 }}>{qty(i.inStore)} store · {qty(i.inKitchen)} kitchen</div> : null}</td>
                     <td style={{ minWidth: 120 }}>
                       <div className="bar"><i className={i.low ? "low" : ""} style={{ width: `${Math.min(100, (i.onHand / Math.max(i.reorderLevel * 2, i.reorderQty, 1)) * 100)}%` }} /></div>
                       <div className="k">{i.reorderLevel ? `reorder at ${qty(i.reorderLevel)}` : "no reorder level"} {i.low ? <Pill tone="red">Low</Pill> : null}</div>

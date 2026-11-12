@@ -5,13 +5,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { StorageLocation } from "@prisma/client";
 import { audit } from "@/lib/audit";
-import { requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
 import { parseDateInput, poNo, rfqNo } from "@/lib/format";
+import { areaOnHand, takeFromAreas, type Area } from "@/lib/kitchen-rules";
 import { notify } from "@/lib/notify";
 import { isRole, roleChangeProblem, roleLabel, type Permission } from "@/lib/roles";
-import { addDays, dishUsage, needsApproval, orderTotal, portionResult, round3, startOfDay, takeFromBatches } from "@/lib/rules";
+import { addDays, dishUsage, needsApproval, orderTotal, portionResult, round3, startOfDay } from "@/lib/rules";
 
 const LOCATIONS: StorageLocation[] = ["DRY_STORE", "COLD_ROOM", "FREEZER", "OTHER"];
 
@@ -361,36 +362,47 @@ export async function updateStockItem(fd: FormData) {
 }
 
 export async function recordMovement(fd: FormData) {
-  const { user, business } = await requireBuyer("stock");
+  const { user, business } = await requireBuyer();
   const id = str(fd, "itemId");
   const path = `/stock/${id}`;
   const type = str(fd, "type");
   const q = num(fd, "quantity");
+  // Store or kitchen. The kitchen records its own use, waste and counts; the store does everything else.
+  const area: Area = str(fd, "area") === "KITCHEN" && type !== "ADDED" ? "KITCHEN" : "STORE";
+  if (!(can(user, "stock") || (area === "KITCHEN" && can(user, "kitchen_request")))) {
+    back(path, "error", "Your role can't change stock here. A store keeper or manager records changes.");
+  }
   const item = await db.stockItem.findFirst({ where: { id, buyerId: business.id }, include: { batches: true } });
   if (!item) back("/stock", "error", "That item wasn't found.");
   if (!(q >= 0) || (type !== "COUNT" && q === 0)) back(path, "error", "Enter a quantity above 0.");
   const onHand = round3(item.batches.reduce((s, b) => s + b.quantity, 0));
+  const here = areaOnHand(item.batches, area);
+  const tag = area === "KITCHEN" ? "Kitchen" : null;
+  // Use and waste come out of the chosen area first, then the other one if it runs short.
+  const order: Area[] = area === "KITCHEN" ? ["KITCHEN", "STORE"] : ["STORE", "KITCHEN"];
 
   await db.$transaction(async (tx) => {
-    const take = async (amount: number) => {
-      const { updates } = takeFromBatches(item.batches, amount);
+    const take = async (amount: number, from: Area[]) => {
+      const { updates } = takeFromAreas(item.batches, amount, from);
       for (const u of updates) await tx.stockBatch.update({ where: { id: u.id }, data: { quantity: u.quantity } });
     };
     if (type === "USED" || type === "WASTED") {
       const amount = Math.min(q, onHand);
-      await take(amount);
+      await take(amount, order);
+      const reason = type === "WASTED" ? str(fd, "reason") || "Spoiled" : null;
       await tx.stockMovement.create({
-        data: { itemId: id, type, quantity: -amount, reason: type === "WASTED" ? str(fd, "reason") || "Spoiled" : null, userId: user.id },
+        data: { itemId: id, type, quantity: -amount, reason: [tag, reason].filter(Boolean).join(": ") || null, userId: user.id },
       });
     } else if (type === "ADDED") {
       const exp = str(fd, "expiresAt");
       await tx.stockBatch.create({ data: { itemId: id, quantity: q, expiresAt: exp ? parseDateInput(exp) : null } });
       await tx.stockMovement.create({ data: { itemId: id, type: "ADDED", quantity: q, reason: str(fd, "reason") || "Bought outside the platform", userId: user.id } });
     } else if (type === "COUNT") {
-      const diff = round3(q - onHand);
-      if (diff < 0) await take(-diff);
-      if (diff > 0) await tx.stockBatch.create({ data: { itemId: id, quantity: diff } });
-      await tx.stockMovement.create({ data: { itemId: id, type: "COUNT_ADJUST", quantity: diff, reason: `Counted ${q}`, userId: user.id } });
+      // A count is for one area: the store's shelves, or what is in the kitchen.
+      const diff = round3(q - here);
+      if (diff < 0) await take(-diff, [area]);
+      if (diff > 0) await tx.stockBatch.create({ data: { itemId: id, quantity: diff, area } });
+      await tx.stockMovement.create({ data: { itemId: id, type: "COUNT_ADJUST", quantity: diff, reason: `${tag ? "Kitchen counted" : "Counted"} ${q}`, userId: user.id } });
     }
   });
   back(path, "ok", "Stock updated.");
@@ -595,7 +607,8 @@ export async function recordDishSales(fd: FormData) {
     for (const { r, n } of sold) await tx.dishSale.create({ data: { recipeId: r.id, quantity: n, soldOn, userId: user.id } });
     for (const item of items) {
       const want = need.get(item.id)!;
-      const { updates, shortfall } = takeFromBatches(item.batches, want);
+      // Dishes are cooked from what the kitchen was issued; anything beyond that comes from the store.
+      const { updates, shortfall } = takeFromAreas(item.batches, want, ["KITCHEN", "STORE"]);
       for (const u of updates) await tx.stockBatch.update({ where: { id: u.id }, data: { quantity: u.quantity } });
       const taken = round3(want - shortfall);
       if (shortfall > 0) short.push(item.name);
@@ -616,6 +629,8 @@ export async function recordDishSales(fd: FormData) {
 
 /* ---------------- portion control ---------------- */
 
+const touched0 = (updates: { id: string }[], id: string) => updates.some((u) => u.id === id);
+
 export async function cutPortions(fd: FormData) {
   const { user, business } = await requireBuyer("stock");
   const id = str(fd, "itemId");
@@ -635,7 +650,11 @@ export async function cutPortions(fd: FormData) {
   if (name.toLowerCase() === from.name.toLowerCase()) back(path, "error", "Give the pieces a different name from the bulk item.");
 
   const r = portionResult({ inputQty, inputUnit: from.unit, pieces, totalWeightKg: totalWeight, unitPrice: from.lastUnitPrice });
-  const { updates } = takeFromBatches(from.batches, inputQty);
+  // Butchery can happen in the store or the kitchen: cut from the store first, and the pieces
+  // stay where most of the bulk came from.
+  const { updates } = takeFromAreas(from.batches, inputQty, ["STORE", "KITCHEN"]);
+  const fromKitchen = from.batches.filter((b) => b.area === "KITCHEN" && touched0(updates, b.id)).reduce((s, b) => s + b.quantity - updates.find((u) => u.id === b.id)!.quantity, 0);
+  const piecesArea: Area = fromKitchen * 2 > inputQty ? "KITCHEN" : "STORE";
   const touched = new Set(updates.map((u) => u.id));
   const expiries = from.batches.filter((b) => touched.has(b.id) && b.expiresAt).map((b) => b.expiresAt!.getTime());
   const expiresAt = expiries.length ? new Date(Math.min(...expiries)) : null;
@@ -648,7 +667,7 @@ export async function cutPortions(fd: FormData) {
       update: from.lastUnitPrice != null ? { lastUnitPrice: r.costPerPiece } : {},
       create: { buyerId: business.id, name, unit: "piece", location: from.location, lastUnitPrice: from.lastUnitPrice != null ? r.costPerPiece : null },
     });
-    await tx.stockBatch.create({ data: { itemId: to.id, quantity: pieces, expiresAt } });
+    await tx.stockBatch.create({ data: { itemId: to.id, quantity: pieces, expiresAt, area: piecesArea } });
     await tx.stockMovement.create({ data: { itemId: from.id, type: "PORTIONED", quantity: -inputQty, reason: detail, userId: user.id } });
     await tx.stockMovement.create({ data: { itemId: to.id, type: "PORTIONED", quantity: pieces, reason: `From ${detail}`, userId: user.id } });
     await tx.portionRun.create({

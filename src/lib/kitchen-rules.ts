@@ -1,5 +1,5 @@
 // Pure rules for kitchen requests, store issues and matching deliveries. No database access.
-import { priceKey, round3 } from "./rules";
+import { priceKey, round3, takeFromBatches, type Batch } from "./rules";
 
 export const kitchenNo = (n: number) => `KR-${String(n).padStart(4, "0")}`;
 
@@ -59,3 +59,43 @@ const fmt = (n: number) => {
   const r = round3(n);
   return String(r);
 };
+
+/* ---------------- store and kitchen stock ---------------- */
+
+export type Area = "STORE" | "KITCHEN";
+type AreaBatch = Batch & { area: string };
+
+/** What is on hand in one area (store or kitchen). */
+export function areaOnHand(batches: { quantity: number; area: string }[], area: Area): number {
+  return round3(batches.filter((b) => b.area === area).reduce((s, b) => s + b.quantity, 0));
+}
+
+/**
+ * Take `qty` out of stock area by area in the given order (e.g. kitchen first, then the store),
+ * oldest batch first within each area.
+ */
+export function takeFromAreas<T extends AreaBatch>(batches: T[], qty: number, order: Area[]) {
+  let left = round3(qty);
+  const updates: { id: string; quantity: number }[] = [];
+  for (const area of order) {
+    if (left <= 0) break;
+    const r = takeFromBatches(batches.filter((b) => b.area === area), left);
+    updates.push(...r.updates);
+    left = r.shortfall;
+  }
+  return { updates, shortfall: left > 0 ? left : 0 };
+}
+
+/**
+ * Moving goods from the store to the kitchen: for each store batch touched, how much moved,
+ * keeping its use-by and received dates so the kitchen still uses the oldest first.
+ */
+export function movedBatches<T extends AreaBatch>(batches: T[], updates: { id: string; quantity: number }[]) {
+  const byId = new Map(batches.map((b) => [b.id, b]));
+  return updates
+    .map((u) => {
+      const b = byId.get(u.id)!;
+      return { quantity: round3(b.quantity - u.quantity), expiresAt: b.expiresAt, receivedAt: b.receivedAt };
+    })
+    .filter((m) => m.quantity > 0);
+}
