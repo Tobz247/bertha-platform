@@ -2,8 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { placePriceListOrder } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
+import { ChangeTag, ConsistencyPanel, ConsistencyPill } from "@/components/PriceConsistency";
+import { RateCardList } from "@/components/RateCards";
+import { SupplierCriteriaSummary } from "@/components/SupplierCriteria";
 import { Empty, PageHead } from "@/components/ui";
 import { can, requireBuyer } from "@/lib/auth";
+import { supplierConsistency } from "@/lib/consistency";
 import { db } from "@/lib/db";
 import { dateInput, day, naira, qty } from "@/lib/format";
 import { supplierRatings } from "@/lib/orders";
@@ -20,12 +24,18 @@ export default async function SupplierPage({ params, searchParams }: { params: P
     include: { categories: true, catalogue: { where: { available: true }, include: { category: true }, orderBy: [{ category: { name: "asc" } }, { name: "asc" }] } },
   });
   if (!s) notFound();
-  const [ratings, lastPaid, market, pastOrders] = await Promise.all([
+  const [ratings, lastPaid, market, pastOrders, consistency, rateCards] = await Promise.all([
     supplierRatings([s.id]),
     lastPaidPrices(business.id),
     marketPrices(),
     db.purchaseOrder.count({ where: { buyerId: business.id, supplierId: s.id, status: "RECEIVED" } }),
+    supplierConsistency([s.id]),
+    db.rateCard.findMany({ where: { supplierId: s.id }, omit: { data: true }, orderBy: { createdAt: "desc" }, take: 5 }),
   ]);
+  const report = consistency.get(s.id);
+  const byKey = new Map(report?.items.map((i) => [i.key, i]));
+  const mine = report?.differences.filter((d) => d.buyerId === business.id) ?? [];
+  const others = (report?.differences.length ?? 0) - mine.length;
   const r = ratings.get(s.id);
 
   return (
@@ -35,12 +45,14 @@ export default async function SupplierPage({ params, searchParams }: { params: P
         eyebrow={<>{s.area} · {s.categories.map((c) => c.name).join(", ")}{r ? <> · <span className="stars">★ {r.avg.toFixed(1)}</span> from {r.count} order{r.count > 1 ? "s" : ""}</> : " · no ratings yet"}</>}
         backHref="/suppliers"
         backLabel="Suppliers"
+        action={<ConsistencyPill report={report} />}
       />
       <Flash sp={sp} />
       <p className="k">
         {pastOrders ? `You've had ${pastOrders} deliver${pastOrders > 1 ? "ies" : "y"} from ${s.name}. ` : ""}
         Delivery {s.deliveryFee ? naira(s.deliveryFee) : "free"} per order{s.minOrderValue ? ` · smallest order ${naira(s.minOrderValue)}` : ""} · {s.phone}
       </p>
+      <div style={{ marginBottom: 16 }}><SupplierCriteriaSummary s={s} /></div>
 
       {s.catalogue.length === 0 ? (
         <Empty>{s.name} hasn't put up a price list yet. <Link href="/requests/new">Ask for a quote</Link> instead.</Empty>
@@ -59,7 +71,7 @@ export default async function SupplierPage({ params, searchParams }: { params: P
                   return (
                     <tr key={c.id}>
                       <td><span className="t">{c.name}</span><div className="k">{c.category?.name ?? "Other"}{c.minQty ? ` · min ${qty(c.minQty)} ${c.unit}` : ""} · price from {day(c.updatedAt)}</div></td>
-                      <td className="r t">{naira(c.price)}<span className="k">/{c.unit}</span></td>
+                      <td className="r t">{naira(c.price)}<span className="k">/{c.unit}</span><div><ChangeTag item={byKey.get(k)} quiet /></div></td>
                       <td className="k">
                         {f ? <span style={{ color: "var(--red)" }}>+{f.pct}% on {f.against === "last" ? "your last" : "going rate"} {naira(f.ref)}</span>
                           : last != null ? `you last paid ${naira(last)}` : m != null ? `going rate ${naira(m)}` : ""}
@@ -90,6 +102,18 @@ export default async function SupplierPage({ params, searchParams }: { params: P
           </div>
         </form>
       )}
+
+      <div className="stack" style={{ marginTop: 20 }}>
+        <div className="card stack" style={{ minWidth: 0 }}>
+          <h2>Price consistency</h2>
+          <p className="k" style={{ margin: 0 }}>How steady {s.name}&apos;s prices have been, and any price you were charged or quoted that differs from their own list.</p>
+          <ConsistencyPanel report={report} differences={mine} otherDifferences={others} linkRefs />
+        </div>
+        <div className="card stack">
+          <h2>Rate cards</h2>
+          <RateCardList cards={rateCards} />
+        </div>
+      </div>
     </>
   );
 }

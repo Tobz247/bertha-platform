@@ -1,5 +1,6 @@
 import { updateSupplierProfile } from "@/app/actions/supplier";
 import { Flash } from "@/components/Flash";
+import { SupplierCriteriaFields } from "@/components/SupplierCriteria";
 import { PageHead, Pill } from "@/components/ui";
 import { requireSupplier } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -37,6 +38,11 @@ export default async function SupplierProfile({ searchParams }: { searchParams: 
         </div>
         <label className="f">Address<input type="text" name="address" id="address" defaultValue={business.address} /></label>
         <label className="f">CAC number <span className="hint">helps us verify you faster</span><input type="text" name="cacNumber" id="cacNumber" defaultValue={business.cacNumber ?? ""} /></label>
+        <fieldset className="stack">
+          <legend>How you work</legend>
+          <p className="k" style={{ margin: 0 }}>Buyers see these when choosing a supplier. Filling them in also helps us verify you.</p>
+          <SupplierCriteriaFields s={business} />
+        </fieldset>
         <fieldset>
           <legend>Bank details for transfers</legend>
           <div className="fields">
