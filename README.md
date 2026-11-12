@@ -48,6 +48,7 @@ and keep their stock up to date from what arrives.
 - Verify or reject suppliers, manage categories
 - Add a supplier by hand (starts verified), type in their price list as "Item, unit, price" lines, update
   their prices and reset their password; suppliers with no email sign in with their phone number
+- **Supplier price consistency**: more supplier criteria (delivery areas and days, notice, payment terms, NAFDAC, TIN, hygiene, cold chain, capacity, references), rate card uploads (a CSV can update the price list), colour tags on list price changes, a 0–100 consistency score per supplier, flags on prices charged or quoted away from the supplier's own list, and an admin **Price watch** page
 
 Not yet included: online payments, SMS/WhatsApp messages (calls go through `src/lib/notify.ts`, which only logs
 for now), logistics booking, invoice photo scanning, POS/accounting links, multiple branches and forecasting.

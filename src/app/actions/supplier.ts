@@ -8,6 +8,8 @@ import { back, num, str } from "@/lib/flash";
 import { parseDateInput, poNo, rfqNo } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { visibleToSupplier } from "@/lib/requests";
+import { logPriceChange } from "@/lib/consistency";
+import { criteriaFromForm, saveRateCard } from "@/lib/supplier-data";
 
 /* ---------------- quotes ---------------- */
 
@@ -134,6 +136,7 @@ export async function updateSupplierProfile(fd: FormData) {
       bankName: str(fd, "bankName") || null,
       bankAccountNumber: str(fd, "bankAccountNumber") || null,
       bankAccountName: str(fd, "bankAccountName") || null,
+      ...criteriaFromForm(fd),
       categories: { set: categoryIds.map((id) => ({ id })) },
     },
   });
@@ -178,9 +181,10 @@ export async function addCatalogItem(fd: FormData) {
   if (await db.catalogItem.findUnique({ where: { supplierId_name_unit: { supplierId: business.id, name, unit } } })) {
     back(path, "error", "That item is already on your list. Change its price below.");
   }
-  await db.catalogItem.create({
+  const created = await db.catalogItem.create({
     data: { supplierId: business.id, name, unit, price, categoryId, minQty: Math.max(0, num(fd, "minQty") || 0) },
   });
+  await logPriceChange({ supplierId: business.id, itemId: created.id, name, unit, oldPrice: null, newPrice: price, source: "PRICE_LIST" });
   back(path, "ok", `${name} added to your price list.`);
 }
 
@@ -200,6 +204,7 @@ export async function updateCatalogItem(fd: FormData) {
     where: { id },
     data: { price, available: str(fd, "available") === "on", minQty: Math.max(0, num(fd, "minQty") || 0) },
   });
+  await logPriceChange({ supplierId: business.id, itemId: id, name: item.name, unit: item.unit, oldPrice: item.price, newPrice: price, source: "PRICE_LIST" });
   back(path, "ok", `${item.name} updated.`);
 }
 
@@ -214,4 +219,19 @@ export async function updateOrderTerms(fd: FormData) {
     },
   });
   back("/supplier/price-list", "ok", "Delivery terms saved.");
+}
+
+/* ---------------- rate cards ---------------- */
+
+export async function uploadRateCard(fd: FormData) {
+  const { user, business } = await requireSupplier();
+  const r = await saveRateCard(fd, business.id, user.name);
+  if ("error" in r && r.error) back("/supplier/price-list", "error", r.error);
+  back("/supplier/price-list", "ok", r.ok!);
+}
+
+export async function deleteRateCard(fd: FormData) {
+  const { business } = await requireSupplier();
+  await db.rateCard.deleteMany({ where: { id: str(fd, "rateCardId"), supplierId: business.id } });
+  back("/supplier/price-list", "ok", "Rate card removed.");
 }

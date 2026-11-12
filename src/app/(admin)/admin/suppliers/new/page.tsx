@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { adminCreateSupplier } from "@/app/actions/admin";
 import { Flash } from "@/components/Flash";
+import { SupplierCriteriaFields } from "@/components/SupplierCriteria";
 import { PageHead } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -36,6 +37,11 @@ export default async function AddSupplier({ searchParams }: { searchParams: Prom
             <label className="f">CAC number <span className="hint">if they have one</span><input type="text" name="cacNumber" id="cacNumber" /></label>
             <label className="f">Delivery fee per order (₦) <span className="hint">optional</span><input type="number" name="deliveryFee" id="deliveryFee" min="0" step="1" /></label>
           </div>
+        </div>
+
+        <div className="card stack">
+          <h2>How they work <span className="hint">fill in what you know</span></h2>
+          <SupplierCriteriaFields />
         </div>
 
         <div className="card stack">
