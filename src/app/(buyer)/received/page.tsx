@@ -11,7 +11,7 @@ export const metadata = { title: "Goods received" };
 
 export default async function Received({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("view_orders");
   const { from, to, fromDay, toDay } = receivedRange(sp);
   const ids = await db.purchaseOrder.findMany({
     where: { buyerId: business.id, receivedAt: { gte: from, lt: to } },

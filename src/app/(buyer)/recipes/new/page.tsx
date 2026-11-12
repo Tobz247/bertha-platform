@@ -8,7 +8,7 @@ export const metadata = { title: "Add a dish" };
 
 export default async function NewRecipe({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("recipes");
   const items = await db.stockItem.findMany({ where: { buyerId: business.id }, orderBy: { name: "asc" } });
   return (
     <>

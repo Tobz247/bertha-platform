@@ -20,7 +20,7 @@ export default async function RequestPage({
   searchParams: Promise<Record<string, string>>;
 }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("requests");
   const req = await db.request.findFirst({
     where: { id, buyerId: business.id },
     include: {

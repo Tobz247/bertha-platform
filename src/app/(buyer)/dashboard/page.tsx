@@ -1,15 +1,20 @@
 import Link from "next/link";
+import { Flash } from "@/components/Flash";
 import { OrderStatusPill, Pill } from "@/components/ui";
-import { canApprove, requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, naira, poNo, rfqNo } from "@/lib/format";
 import { orderTotal, paymentState } from "@/lib/rules";
+import { roleLabel } from "@/lib/roles";
 import { stockOverview } from "@/lib/stock";
 
 export const metadata = { title: "Home" };
 
-export default async function Dashboard() {
+export default async function Dashboard({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const sp = await searchParams;
   const { user, business } = await requireBuyer();
+  const buys = can(user, "requests");
+  const seesOrders = can(user, "view_orders");
   const [requests, orders, stock] = await Promise.all([
     db.request.findMany({
       where: { buyerId: business.id, status: "OPEN" },
@@ -44,21 +49,22 @@ export default async function Dashboard() {
     <>
       <div className="page-head">
         <div>
-          <div className="eyebrow">{business.name}</div>
+          <div className="eyebrow">{business.name} · {roleLabel(user.role)}</div>
           <h1>Good day, {user.name.split(" ")[0]}</h1>
         </div>
-        <Link className="btn" href="/requests/new">New request</Link>
+        {buys ? <Link className="btn" href="/requests/new">New request</Link> : null}
       </div>
+      <Flash sp={sp} />
 
       <div className="tiles">
-        <Link className="tile green" href="/requests"><span className="n">{withQuotes.length}</span><span className="t">Requests with quotes</span><span className="k">{quoteCount} quote{quoteCount === 1 ? "" : "s"} to compare</span></Link>
-        {canApprove(user) ? (
+        {buys ? <Link className="tile green" href="/requests"><span className="n">{withQuotes.length}</span><span className="t">Requests with quotes</span><span className="k">{quoteCount} quote{quoteCount === 1 ? "" : "s"} to compare</span></Link> : null}
+        {can(user, "approve") ? (
           <Link className="tile amber" href="/approvals"><span className="n">{approvals.length}</span><span className="t">Waiting for approval</span><span className="k">orders over {business.approvalLimit != null ? naira(business.approvalLimit) : "your limit"}</span></Link>
         ) : null}
-        <Link className="tile blue" href="/orders"><span className="n">{coming.length}</span><span className="t">Orders coming</span><span className="k">{coming.filter((o) => o.status === "DISPATCHED").length} on the way now</span></Link>
+        {seesOrders ? <Link className="tile blue" href="/orders"><span className="n">{coming.length}</span><span className="t">Orders coming</span><span className="k">{coming.filter((o) => o.status === "DISPATCHED").length} on the way now</span></Link> : null}
         <Link className="tile red" href="/stock?filter=low"><span className="n">{low.length}</span><span className="t">Low stock</span><span className="k">at or below reorder level</span></Link>
         <Link className="tile amber" href="/stock?filter=expiring"><span className="n">{expiring.length}</span><span className="t">Expiring soon</span><span className="k">within 3 days</span></Link>
-        <Link className="tile" href="/orders?filter=owed"><span className="n">{naira(owedTotal)}</span><span className="t">Owed to suppliers</span><span className="k">{owed.length} order{owed.length === 1 ? "" : "s"}{overdue ? `, ${overdue} overdue` : ""}</span></Link>
+        {seesOrders ? <Link className="tile" href="/orders?filter=owed"><span className="n">{naira(owedTotal)}</span><span className="t">Owed to suppliers</span><span className="k">{owed.length} order{owed.length === 1 ? "" : "s"}{overdue ? `, ${overdue} overdue` : ""}</span></Link> : null}
       </div>
 
       <div className="grid2" style={{ marginTop: 8 }}>
@@ -67,14 +73,14 @@ export default async function Dashboard() {
           <div className="stack">
             {coming.length === 0 ? <div className="empty">No deliveries expected.</div> : null}
             {coming.slice(0, 6).map((o) => (
-              <Link key={o.id} className="card" href={`/orders/${o.id}`}>
+              <Link key={o.id} className="card" href={seesOrders ? `/orders/${o.id}` : "/dashboard"}>
                 <div className="row"><span className="t">{o.supplier.name}</span><OrderStatusPill status={o.status} /></div>
                 <div className="k"><span className="mono">{poNo(o.number)}</span> · {o.lines.map((l) => l.product).join(", ")} · due {day(o.deliveryDate)}</div>
               </Link>
             ))}
           </div>
         </section>
-        <section>
+        {buys ? <section>
           <div className="section">Open requests</div>
           <div className="stack">
             {requests.length === 0 ? <div className="empty">No open requests. <Link href="/requests/new">Ask for quotes</Link></div> : null}
@@ -85,7 +91,7 @@ export default async function Dashboard() {
               </Link>
             ))}
           </div>
-        </section>
+        </section> : null}
       </div>
     </>
   );

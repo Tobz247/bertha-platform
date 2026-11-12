@@ -12,7 +12,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function GrnPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("view_orders");
   const o = await loadOrder(id);
   if (!o || o.buyerId !== business.id || !o.receivedAt) notFound();
   return (

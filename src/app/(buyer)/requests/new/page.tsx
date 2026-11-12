@@ -11,7 +11,7 @@ export const metadata = { title: "New request" };
 
 export default async function NewRequest({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("requests");
   const itemIds = ([] as string[]).concat(sp.items ?? []).flatMap((v) => v.split(",")).filter(Boolean);
   const [categories, suppliers, items] = await Promise.all([
     db.category.findMany({ orderBy: { name: "asc" } }),

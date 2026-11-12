@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { audit } from "@/lib/audit";
 import { requireAdmin, requireSupplier } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
@@ -142,22 +143,24 @@ export async function updateSupplierProfile(fd: FormData) {
 /* ---------------- platform admin ---------------- */
 
 export async function setVerification(fd: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = str(fd, "businessId");
   const status = str(fd, "status");
   if (!["VERIFIED", "REJECTED", "PENDING"].includes(status)) back("/admin", "error", "Unknown status.");
   const b = await db.business.update({ where: { id }, data: { verification: status as "VERIFIED" | "REJECTED" | "PENDING" } });
+  await audit(admin, "admin.verification", `${admin.name} marked supplier ${b.name} ${status.toLowerCase()}`, { businessId: b.id, targetType: "Business", targetId: b.id });
   await notify(b.id, status === "VERIFIED" ? "Your Bertha account is verified. You can now send quotes." : "Your Bertha account needs attention. Please contact us.");
   back("/admin", "ok", `${b.name} marked ${status.toLowerCase()}.`);
 }
 
 export async function addCategory(fd: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const name = str(fd, "name");
   const units = str(fd, "units");
   if (!name) back("/admin/categories", "error", "Enter a category name.");
   if (await db.category.findUnique({ where: { name } })) back("/admin/categories", "error", "That category already exists.");
   await db.category.create({ data: { name, units: units || "kg" } });
+  await audit(admin, "admin.category_added", `${admin.name} added category ${name}`, { businessId: null });
   back("/admin/categories", "ok", "Category added.");
 }
 

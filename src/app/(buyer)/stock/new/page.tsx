@@ -7,7 +7,7 @@ export const metadata = { title: "Add stock item" };
 
 export default async function NewStockItem({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  await requireBuyer();
+  await requireBuyer("stock");
   return (
     <>
       <PageHead title="Add stock item" eyebrow="For goods you already hold or buy outside the platform" backHref="/stock" backLabel="Stock" />

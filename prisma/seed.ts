@@ -62,6 +62,15 @@ async function main() {
   const tobi = await db.user.create({ data: { name: "Tobi Adeyemi", email: "tobi@maitamagrove.test", passwordHash: hash, role: "OWNER", businessId: hotel.id } });
   await db.user.create({ data: { name: "Amina Garba", email: "amina@maitamagrove.test", passwordHash: hash, role: "MANAGER", businessId: hotel.id } });
   const chef = await db.user.create({ data: { name: "Chef Kunle", email: "kunle@maitamagrove.test", passwordHash: hash, role: "STAFF", businessId: hotel.id } });
+  // One person for each job role, to try what each one sees.
+  for (const [name, email, role] of [
+    ["Musa Bello", "procurement@maitamagrove.test", "PROCUREMENT"],
+    ["Chef Ngozi", "kitchen@maitamagrove.test", "KITCHEN"],
+    ["Halima Yusuf", "store@maitamagrove.test", "STOREKEEPER"],
+    ["Emeka Obi", "accounts@maitamagrove.test", "ACCOUNTS"],
+  ] as const) {
+    await db.user.create({ data: { name, email, passwordHash: hash, role, businessId: hotel.id } });
+  }
 
   // A request with three quotes to compare
   const r1 = await db.request.create({

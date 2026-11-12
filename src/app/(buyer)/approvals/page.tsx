@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { decideApproval } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
 import { Empty, PageHead } from "@/components/ui";
-import { canApprove, requireBuyer } from "@/lib/auth";
+import { requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, naira, poNo, qty } from "@/lib/format";
 import { orderTotal } from "@/lib/rules";
@@ -12,8 +11,7 @@ export const metadata = { title: "Approvals" };
 
 export default async function Approvals({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { user, business } = await requireBuyer();
-  if (!canApprove(user)) redirect("/dashboard");
+  const { business } = await requireBuyer("approve");
   const orders = await db.purchaseOrder.findMany({
     where: { buyerId: business.id, status: "AWAITING_APPROVAL" },
     include: { supplier: true, lines: { orderBy: { position: "asc" } }, createdBy: true, quote: { include: { request: { include: { quotes: { include: { lines: true } }, lines: true } } } } },

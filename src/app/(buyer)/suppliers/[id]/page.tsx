@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { placePriceListOrder } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
 import { Empty, PageHead } from "@/components/ui";
-import { requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { dateInput, day, naira, qty } from "@/lib/format";
 import { supplierRatings } from "@/lib/orders";
@@ -14,7 +14,7 @@ export const metadata = { title: "Supplier" };
 
 export default async function SupplierPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const { business } = await requireBuyer();
+  const { user, business } = await requireBuyer();
   const s = await db.business.findFirst({
     where: { id, type: "SUPPLIER", verification: "VERIFIED" },
     include: { categories: true, catalogue: { where: { available: true }, include: { category: true }, orderBy: [{ category: { name: "asc" } }, { name: "asc" }] } },
@@ -86,7 +86,7 @@ export default async function SupplierPage({ params, searchParams }: { params: P
             <label className="f">Deliver to<input type="text" name="deliveryAddress" id="deliveryAddress" defaultValue={business.address} /></label>
             <label className="f">Note for the supplier <span className="hint">optional</span><input type="text" name="note" id="note" placeholder="e.g. deliver before 9am, use back gate" /></label>
             {business.approvalLimit != null ? <p className="k" style={{ margin: 0 }}>Orders over {naira(business.approvalLimit)} go to a manager for approval first.</p> : null}
-            <div><button className="btn" type="submit">Place order</button></div>
+            {can(user, "order") ? <div><button className="btn" type="submit">Place order</button></div> : <p className="k" style={{ margin: 0 }}>Your role can see prices but not place orders. Ask procurement or a manager.</p>}
           </div>
         </form>
       )}

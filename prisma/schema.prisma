@@ -21,10 +21,16 @@ enum VerificationStatus {
   REJECTED
 }
 
+// OWNER, MANAGER and STAFF are general roles. The others are job roles in a hotel or restaurant.
+// What each role can do lives in src/lib/roles.ts.
 enum UserRole {
   OWNER
   MANAGER
   STAFF
+  PROCUREMENT
+  KITCHEN
+  STOREKEEPER
+  ACCOUNTS
 }
 
 model Business {
@@ -58,6 +64,7 @@ model Business {
   catalogue      CatalogItem[]
   recipes        Recipe[]
   portionRuns    PortionRun[]
+  auditEntries   AuditLog[]
 }
 
 model User {
@@ -68,6 +75,8 @@ model User {
   passwordHash    String
   role            UserRole  @default(STAFF)
   isPlatformAdmin Boolean   @default(false)
+  active          Boolean   @default(true) // false = login turned off by an owner, manager or admin
+  lastLoginAt     DateTime?
   businessId      String?
   business        Business? @relation(fields: [businessId], references: [id])
   createdAt       DateTime  @default(now())
@@ -81,6 +90,7 @@ model User {
   movements       StockMovement[]
   events          OrderEvent[]
   dishSales       DishSale[]
+  auditEntries    AuditLog[]
 }
 
 model Category {
@@ -447,4 +457,30 @@ model PortionRun {
   userId      String
   user        User      @relation(fields: [userId], references: [id])
   at          DateTime  @default(now())
+}
+
+/**
+ * ---------------- audit log ----------------
+ */
+
+/**
+ * One line per important action (sign-ins, team and role changes, approvals, payments,
+ * admin changes). Written by src/lib/audit.ts, read on /admin/audit. Never edited.
+ */
+model AuditLog {
+  id         String    @id @default(cuid())
+  at         DateTime  @default(now())
+  actorId    String?
+  actor      User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorName  String? // kept even if the user is removed later
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  action     String // e.g. "auth.login", "team.role_changed", "order.approved"
+  summary    String // plain sentence shown to admins
+  targetType String? // e.g. "User", "PurchaseOrder"
+  targetId   String?
+
+  @@index([at])
+  @@index([businessId, at])
+  @@index([action, at])
 }

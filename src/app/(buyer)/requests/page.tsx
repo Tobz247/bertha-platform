@@ -9,7 +9,7 @@ export const metadata = { title: "Requests" };
 const STATUS = { OPEN: null, AWARDED: { t: "Awarded", tone: "blue" }, CLOSED: { t: "Closed", tone: "grey" }, CANCELLED: { t: "Cancelled", tone: "grey" } } as const;
 
 export default async function Requests() {
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("requests");
   const requests = await db.request.findMany({
     where: { buyerId: business.id },
     include: { lines: true, category: true, quotes: { where: { status: { in: ["SUBMITTED", "AWARDED", "NOT_SELECTED"] } } } },
