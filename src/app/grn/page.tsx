@@ -11,7 +11,7 @@ export const metadata = { title: "Goods received notes" };
 /** Every goods received note in a date range, one per page, for accounts. */
 export default async function GrnBatch({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("view_orders");
   const { from, to } = receivedRange(sp);
   const ids = await db.purchaseOrder.findMany({
     where: { buyerId: business.id, receivedAt: { gte: from, lt: to } },

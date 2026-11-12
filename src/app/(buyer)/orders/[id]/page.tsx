@@ -4,7 +4,7 @@ import { cancelOrder, decideApproval, rateOrder, receiveOrder, recordPayment } f
 import { Flash } from "@/components/Flash";
 import { OrderEvents, OrderLines, PaymentSummary } from "@/components/OrderParts";
 import { OrderStatusPill, PageHead, Pill } from "@/components/ui";
-import { canApprove, requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { dateInput, day, naira, poNo, qty, rfqNo } from "@/lib/format";
 import { loadOrder, payLabel } from "@/lib/orders";
 import { addDays } from "@/lib/rules";
@@ -13,12 +13,12 @@ export const metadata = { title: "Order" };
 
 export default async function OrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("view_orders");
   const o = await loadOrder(id);
   if (!o || o.buyerId !== business.id) notFound();
   const pl = payLabel(o);
-  const canReceive = o.status === "CONFIRMED" || o.status === "DISPATCHED";
-  const canCancel = ["AWAITING_APPROVAL", "AWAITING_SUPPLIER", "CONFIRMED"].includes(o.status);
+  const canReceive = can(user, "receive") && (o.status === "CONFIRMED" || o.status === "DISPATCHED");
+  const canCancel = can(user, "order") && ["AWAITING_APPROVAL", "AWAITING_SUPPLIER", "CONFIRMED"].includes(o.status);
   const today = new Date();
 
   return (
@@ -40,7 +40,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           </div>
 
           {o.status === "AWAITING_APPROVAL" ? (
-            canApprove(user) ? (
+            can(user, "approve") ? (
               <form action={decideApproval} className="card stack">
                 <input type="hidden" name="orderId" value={o.id} />
                 <div className="alert warn"><b>Needs your approval.</b> {naira(o.total)} is over the {naira(business.approvalLimit ?? 0)} limit.</div>
@@ -96,7 +96,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
               ) : null}
               {!o.invoice ? <div className="alert info">No invoice from the supplier yet. The amount due is the value of what you received.</div> : null}
               <PaymentSummary o={o} />
-              {o.pay.kind !== "paid" ? (
+              {o.pay.kind !== "paid" && can(user, "pay") ? (
                 <form action={recordPayment} className="stack" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
                   <input type="hidden" name="orderId" value={o.id} />
                   <div className="fields">
@@ -114,7 +114,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
             </div>
           ) : null}
 
-          {o.status === "RECEIVED" ? (
+          {o.status === "RECEIVED" && can(user, "rate") ? (
             <form action={rateOrder} className="card stack">
               <input type="hidden" name="orderId" value={o.id} />
               <h2>{o.rating ? "Your rating" : `Rate ${o.supplier.name}`}</h2>

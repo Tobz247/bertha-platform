@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Empty, PageHead, Pill } from "@/components/ui";
-import { requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { day, LOCATION_LABEL, naira, qty } from "@/lib/format";
 import { stockOverview } from "@/lib/stock";
 
@@ -8,7 +8,7 @@ export const metadata = { title: "Stock" };
 
 export default async function Stock({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { user, business } = await requireBuyer();
   const all = await stockOverview(business.id);
   const filter = sp.filter === "low" || sp.filter === "expiring" ? sp.filter : "all";
   const items = filter === "low" ? all.filter((i) => i.low) : filter === "expiring" ? all.filter((i) => i.expiringQty > 0) : all;
@@ -17,7 +17,7 @@ export default async function Stock({ searchParams }: { searchParams: Promise<Re
 
   return (
     <>
-      <PageHead title="Stock" eyebrow={`${all.length} items · worth about ${naira(value)} at last purchase price`} action={<Link className="btn sec" href="/stock/new">Add item</Link>} />
+      <PageHead title="Stock" eyebrow={`${all.length} items · worth about ${naira(value)} at last purchase price`} action={can(user, "stock") ? <Link className="btn sec" href="/stock/new">Add item</Link> : null} />
       <div className="btns" style={{ marginBottom: 14 }}>
         <Link className={`btn small ${filter === "all" ? "" : "sec"}`} href="/stock">All {all.length}</Link>
         <Link className={`btn small ${filter === "low" ? "" : "sec"}`} href="/stock?filter=low">Low {lowCount}</Link>

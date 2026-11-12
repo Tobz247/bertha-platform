@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { cutPortions, recordMovement, updateStockItem } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
 import { PageHead, Pill } from "@/components/ui";
-import { requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, LOCATION_LABEL, naira, poNo, qty } from "@/lib/format";
 import { expiringBatches, isKg, isLow, portionResult, stockOnHand } from "@/lib/rules";
@@ -14,7 +14,8 @@ const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added
 
 export default async function StockItemPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const { business } = await requireBuyer();
+  const { user, business } = await requireBuyer();
+  const canEdit = can(user, "stock");
   const item = await db.stockItem.findFirst({
     where: { id, buyerId: business.id },
     include: {
@@ -35,7 +36,7 @@ export default async function StockItemPage({ params, searchParams }: { params: 
         eyebrow={`${item.unit} · ${LOCATION_LABEL[item.location]}`}
         backHref="/stock"
         backLabel="Stock"
-        action={isLow(onHand, item.reorderLevel) ? <Link className="btn" href={`/requests/new?items=${item.id}`}>Reorder</Link> : null}
+        action={isLow(onHand, item.reorderLevel) && can(user, "requests") ? <Link className="btn" href={`/requests/new?items=${item.id}`}>Reorder</Link> : null}
       />
       <Flash sp={sp} />
       <div className="grid2">
@@ -45,6 +46,7 @@ export default async function StockItemPage({ params, searchParams }: { params: 
             <div style={{ textAlign: "right" }} className="k">{item.lastUnitPrice ? `Last bought at ${naira(item.lastUnitPrice)}/${item.unit}` : "No purchase price yet"}<br />{isLow(onHand, item.reorderLevel) ? <Pill tone="red">Low</Pill> : null}</div>
           </div>
 
+          {canEdit ? <>
           <form action={recordMovement} className="card stack">
             <input type="hidden" name="itemId" value={item.id} />
             <h2>Record a change</h2>
@@ -99,6 +101,7 @@ export default async function StockItemPage({ params, searchParams }: { params: 
             </div>
             <div><button className="btn sec" type="submit">Save settings</button></div>
           </form>
+          </> : <div className="alert info">Your role can see stock but not change it. A store keeper or manager records changes.</div>}
         </div>
 
         <div className="stack">

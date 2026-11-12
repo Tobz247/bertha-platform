@@ -1,18 +1,20 @@
-import { addTeamMember, updateSettings } from "@/app/actions/buyer";
+import { addTeamMember, updateSettings, updateTeamMember } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
 import { PageHead } from "@/components/ui";
-import { canApprove, requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { day } from "@/lib/format";
+import { BUYER_ROLES, roleLabel } from "@/lib/roles";
 
 export const metadata = { title: "Settings" };
-
-const ROLE = { OWNER: "Owner", MANAGER: "Manager (can approve)", STAFF: "Staff" } as const;
 
 export default async function Settings({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
   const { user, business } = await requireBuyer();
   const team = await db.user.findMany({ where: { businessId: business.id }, orderBy: { createdAt: "asc" } });
-  const admin = canApprove(user);
+  const admin = can(user, "team");
+  // Only owners can hand out or change the owner role.
+  const roles = BUYER_ROLES.filter((r) => r.role !== "OWNER" || user.role === "OWNER");
   return (
     <>
       <PageHead title="Settings" eyebrow={business.name} />
@@ -29,9 +31,40 @@ export default async function Settings({ searchParams }: { searchParams: Promise
         </form>
         <div className="card stack">
           <h2>Team</h2>
+          <p className="k" style={{ margin: 0 }}>Each person sees the parts of Bertha their role needs. You are {roleLabel(user.role)}.</p>
           <table className="list">
-            <tbody>{team.map((t) => <tr key={t.id}><td>{t.name}<div className="k">{t.email}</div></td><td className="k">{ROLE[t.role]}</td></tr>)}</tbody>
+            <tbody>
+              {team.map((t) => {
+                const locked = !admin || t.id === user.id || (t.role === "OWNER" && user.role !== "OWNER");
+                return (
+                  <tr key={t.id} style={t.active ? undefined : { opacity: 0.55 }}>
+                    <td>
+                      {t.name}{t.id === user.id ? " (you)" : ""}
+                      <div className="k">{t.email}{t.active ? (t.lastLoginAt ? ` · last in ${day(t.lastLoginAt)}` : " · not signed in yet") : " · login turned off"}</div>
+                    </td>
+                    <td>
+                      {locked ? (
+                        <span className="k">{roleLabel(t.role)}</span>
+                      ) : (
+                        <form action={updateTeamMember} className="btns" style={{ alignItems: "center", justifyContent: "flex-end" }}>
+                          <input type="hidden" name="userId" value={t.id} />
+                          <select name="role" aria-label={`Role for ${t.name}`} defaultValue={t.role} style={{ width: "auto" }}>
+                            {roles.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
+                          </select>
+                          <button className="btn sec small" type="submit">Save</button>
+                          <button className="btn sec small" type="submit" name="active" value={t.active ? "0" : "1"}>{t.active ? "Turn off login" : "Turn login back on"}</button>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
+          <details>
+            <summary className="k">What each role can do</summary>
+            <table className="list"><tbody>{BUYER_ROLES.map((r) => <tr key={r.role}><td>{r.label}</td><td className="k">{r.does}</td></tr>)}</tbody></table>
+          </details>
           {admin ? (
             <form action={addTeamMember} className="stack" style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
               <h3>Add someone</h3>
@@ -41,7 +74,7 @@ export default async function Settings({ searchParams }: { searchParams: Promise
               </div>
               <div className="fields">
                 <label className="f">Role
-                  <select name="role" id="member-role" defaultValue="STAFF"><option value="STAFF">Staff: requests, stock and deliveries</option><option value="MANAGER">Manager: also approves large orders</option></select>
+                  <select name="role" id="member-role" defaultValue="STAFF">{roles.map((r) => <option key={r.role} value={r.role}>{r.label}: {r.does.toLowerCase()}</option>)}</select>
                 </label>
                 <label className="f">Temporary password<input type="text" name="password" id="member-password" required minLength={8} /></label>
               </div>

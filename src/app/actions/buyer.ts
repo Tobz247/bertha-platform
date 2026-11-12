@@ -4,11 +4,13 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { StorageLocation } from "@prisma/client";
-import { canApprove, requireBuyer } from "@/lib/auth";
+import { audit } from "@/lib/audit";
+import { requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
 import { parseDateInput, poNo, rfqNo } from "@/lib/format";
 import { notify } from "@/lib/notify";
+import { isRole, roleChangeProblem, roleLabel, type Permission } from "@/lib/roles";
 import { addDays, dishUsage, needsApproval, orderTotal, portionResult, round3, startOfDay, takeFromBatches } from "@/lib/rules";
 
 const LOCATIONS: StorageLocation[] = ["DRY_STORE", "COLD_ROOM", "FREEZER", "OTHER"];
@@ -16,7 +18,7 @@ const LOCATIONS: StorageLocation[] = ["DRY_STORE", "COLD_ROOM", "FREEZER", "OTHE
 /* ---------------- requests ---------------- */
 
 export async function createRequest(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("requests");
   const title = str(fd, "title");
   const categoryId = str(fd, "categoryId");
   const neededBy = str(fd, "neededBy");
@@ -75,7 +77,7 @@ export async function createRequest(fd: FormData) {
 }
 
 export async function cancelRequest(fd: FormData) {
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("requests");
   const id = str(fd, "requestId");
   const req = await db.request.findFirst({ where: { id, buyerId: business.id, status: "OPEN" } });
   if (!req) back(`/requests/${id}`, "error", "This request can no longer be cancelled.");
@@ -84,7 +86,7 @@ export async function cancelRequest(fd: FormData) {
 }
 
 export async function awardQuote(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("requests");
   const requestId = str(fd, "requestId");
   const quoteId = str(fd, "quoteId");
   const terms = Math.max(0, Math.round(num(fd, "paymentTermsDays") || 0));
@@ -134,6 +136,7 @@ export async function awardQuote(fd: FormData) {
     return o;
   });
 
+  await audit(user, "order.placed", `${user.name} ordered ${poNo(order.number)} (₦${total.toLocaleString("en-NG")}) from ${quote.supplier.name} for ${business.name}${approval ? ", sent for approval" : ""}`, { targetType: "PurchaseOrder", targetId: order.id });
   if (!approval) await notify(quote.supplierId, `New order ${poNo(order.number)} from ${business.name}`);
   revalidatePath("/", "layout");
   redirect(
@@ -145,8 +148,8 @@ export async function awardQuote(fd: FormData) {
 
 /* ---------------- orders ---------------- */
 
-async function ownOrder(id: string) {
-  const { user, business } = await requireBuyer();
+async function ownOrder(id: string, permission: Permission) {
+  const { user, business } = await requireBuyer(permission);
   const order = await db.purchaseOrder.findFirst({ where: { id, buyerId: business.id }, include: { lines: true } });
   if (!order) back("/orders", "error", "That order wasn't found.");
   return { user, business, order };
@@ -154,9 +157,8 @@ async function ownOrder(id: string) {
 
 export async function decideApproval(fd: FormData) {
   const id = str(fd, "orderId");
-  const { user, order } = await ownOrder(id);
+  const { user, business, order } = await ownOrder(id, "approve");
   const path = str(fd, "returnTo") || `/orders/${id}`;
-  if (!canApprove(user)) back(path, "error", "Only an owner or manager can approve orders.");
   if (order.status !== "AWAITING_APPROVAL") back(path, "error", "This order isn't waiting for approval.");
   const approve = str(fd, "decision") === "approve";
   const note = str(fd, "note") || null;
@@ -170,6 +172,7 @@ export async function decideApproval(fd: FormData) {
       events: { create: { actorId: user.id, message: approve ? "Approved" : `Not approved${note ? `: ${note}` : ""}` } },
     },
   });
+  await audit(user, approve ? "order.approved" : "order.not_approved", `${user.name} ${approve ? "approved" : "did not approve"} ${poNo(order.number)} at ${business.name}${note ? `: ${note}` : ""}`, { targetType: "PurchaseOrder", targetId: id });
   if (approve) await notify(order.supplierId, `New order ${poNo(order.number)}`);
   revalidatePath("/", "layout");
   back(path, "ok", approve ? "Approved and sent to the supplier." : "Order not approved. The person who raised it can see your note.");
@@ -177,7 +180,7 @@ export async function decideApproval(fd: FormData) {
 
 export async function cancelOrder(fd: FormData) {
   const id = str(fd, "orderId");
-  const { user, order } = await ownOrder(id);
+  const { user, business, order } = await ownOrder(id, "order");
   if (!["AWAITING_APPROVAL", "AWAITING_SUPPLIER", "CONFIRMED"].includes(order.status)) {
     back(`/orders/${id}`, "error", "An order can't be cancelled once it has been dispatched.");
   }
@@ -185,13 +188,14 @@ export async function cancelOrder(fd: FormData) {
     where: { id },
     data: { status: "CANCELLED", events: { create: { actorId: user.id, message: "Cancelled by buyer" } } },
   });
+  await audit(user, "order.cancelled", `${user.name} cancelled ${poNo(order.number)} at ${business.name}`, { targetType: "PurchaseOrder", targetId: id });
   await notify(order.supplierId, `Order ${poNo(order.number)} was cancelled by the buyer`);
   back(`/orders/${id}`, "ok", "Order cancelled.");
 }
 
 export async function receiveOrder(fd: FormData) {
   const id = str(fd, "orderId");
-  const { user, business, order } = await ownOrder(id);
+  const { user, business, order } = await ownOrder(id, "receive");
   const path = `/orders/${id}`;
   if (!["CONFIRMED", "DISPATCHED"].includes(order.status)) back(path, "error", "You can record goods once the supplier has confirmed the order.");
 
@@ -249,6 +253,7 @@ export async function receiveOrder(fd: FormData) {
       },
     });
   });
+  await audit(user, "order.received", `${user.name} recorded goods received for ${poNo(order.number)} at ${business.name}`, { targetType: "PurchaseOrder", targetId: id });
   await notify(order.supplierId, `${business.name} confirmed delivery of ${poNo(order.number)}`);
   revalidatePath("/", "layout");
   back(path, "ok", "Goods recorded and stock updated. The goods received note for accounts is ready (top right).");
@@ -256,7 +261,7 @@ export async function receiveOrder(fd: FormData) {
 
 export async function recordPayment(fd: FormData) {
   const id = str(fd, "orderId");
-  const { user, order } = await ownOrder(id);
+  const { user, business, order } = await ownOrder(id, "pay");
   const path = `/orders/${id}`;
   if (order.status !== "RECEIVED") back(path, "error", "Record payments once goods have been received.");
   const method = str(fd, "method") === "CASH" ? "CASH" : "TRANSFER";
@@ -276,13 +281,14 @@ export async function recordPayment(fd: FormData) {
   await db.orderEvent.create({
     data: { orderId: id, actorId: user.id, message: `Payment of ₦${amount.toLocaleString("en-NG")} recorded (${method === "CASH" ? "cash" : "transfer"})` },
   });
+  await audit(user, "payment.recorded", `${user.name} recorded ₦${amount.toLocaleString("en-NG")} ${method === "CASH" ? "cash" : "transfer"} on ${poNo(order.number)} at ${business.name}`, { targetType: "PurchaseOrder", targetId: id });
   await notify(order.supplierId, `Payment recorded on ${poNo(order.number)}`);
   back(path, "ok", "Payment recorded.");
 }
 
 export async function rateOrder(fd: FormData) {
   const id = str(fd, "orderId");
-  const { business, order } = await ownOrder(id);
+  const { business, order } = await ownOrder(id, "rate");
   const path = `/orders/${id}`;
   if (order.status !== "RECEIVED") back(path, "error", "Rate the supplier after the goods arrive.");
   const score = (k: string) => Math.min(5, Math.max(1, Math.round(num(fd, k) || 0)));
@@ -306,7 +312,7 @@ export async function rateOrder(fd: FormData) {
 /* ---------------- stock ---------------- */
 
 export async function createStockItem(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("stock");
   const name = str(fd, "name");
   const unit = str(fd, "unit");
   const loc = str(fd, "location") as StorageLocation;
@@ -333,7 +339,7 @@ export async function createStockItem(fd: FormData) {
 }
 
 export async function updateStockItem(fd: FormData) {
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("stock");
   const id = str(fd, "itemId");
   const loc = str(fd, "location") as StorageLocation;
   const item = await db.stockItem.findFirst({ where: { id, buyerId: business.id } });
@@ -350,7 +356,7 @@ export async function updateStockItem(fd: FormData) {
 }
 
 export async function recordMovement(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("stock");
   const id = str(fd, "itemId");
   const path = `/stock/${id}`;
   const type = str(fd, "type");
@@ -388,8 +394,7 @@ export async function recordMovement(fd: FormData) {
 /* ---------------- settings ---------------- */
 
 export async function updateSettings(fd: FormData) {
-  const { user, business } = await requireBuyer();
-  if (!canApprove(user)) back("/settings", "error", "Only an owner or manager can change settings.");
+  const { user, business } = await requireBuyer("team");
   const raw = str(fd, "approvalLimit");
   const limit = raw === "" ? null : Math.max(0, Math.round(num(fd, "approvalLimit")));
   if (raw !== "" && !Number.isFinite(limit)) back("/settings", "error", "Enter the approval limit in Naira, or leave it blank for no approvals.");
@@ -397,29 +402,58 @@ export async function updateSettings(fd: FormData) {
     where: { id: business.id },
     data: { approvalLimit: limit, address: str(fd, "address") || business.address, phone: str(fd, "phone") || business.phone },
   });
+  if (limit !== business.approvalLimit) {
+    const show = (n: number | null) => (n == null ? "off" : `₦${n.toLocaleString("en-NG")}`);
+    await audit(user, "settings.approval_limit", `${user.name} changed ${business.name}'s approval limit from ${show(business.approvalLimit)} to ${show(limit)}`);
+  }
   back("/settings", "ok", "Settings saved.");
 }
 
 export async function addTeamMember(fd: FormData) {
-  const { user, business } = await requireBuyer();
-  if (!canApprove(user)) back("/settings", "error", "Only an owner or manager can add people.");
+  const { user, business } = await requireBuyer("team");
   const email = str(fd, "email").toLowerCase();
   const name = str(fd, "name");
   const password = str(fd, "password");
-  const role = str(fd, "role") === "MANAGER" ? "MANAGER" : "STAFF";
+  const role = str(fd, "role");
   if (!name || !email) back("/settings", "error", "Enter a name and email.");
+  if (!isRole(role)) back("/settings", "error", "Pick a role.");
+  if (role === "OWNER" && user.role !== "OWNER") back("/settings", "error", "Only an owner can add another owner.");
   if (password.length < 8) back("/settings", "error", "Set a temporary password of at least 8 characters.");
   if (await db.user.findUnique({ where: { email } })) back("/settings", "error", "Someone already uses that email.");
-  await db.user.create({
+  const added = await db.user.create({
     data: { name, email, phone: str(fd, "phone") || null, role, businessId: business.id, passwordHash: await bcrypt.hash(password, 10) },
   });
-  back("/settings", "ok", `${name} can now sign in with ${email}.`);
+  await audit(user, "team.added", `${user.name} added ${name} (${email}) to ${business.name} as ${roleLabel(role)}`, { targetType: "User", targetId: added.id });
+  back("/settings", "ok", `${name} can now sign in with ${email} as ${roleLabel(role)}.`);
+}
+
+/** Change a team member's role, or turn their login off or back on. */
+export async function updateTeamMember(fd: FormData) {
+  const { user, business } = await requireBuyer("team");
+  const target = await db.user.findFirst({ where: { id: str(fd, "userId"), businessId: business.id } });
+  if (!target) back("/settings", "error", "That person isn't on your team.");
+  const nextRole = str(fd, "role") || target.role;
+  const nextActive = str(fd, "active") ? str(fd, "active") === "1" : target.active;
+  const activeOwners = await db.user.count({ where: { businessId: business.id, role: "OWNER", active: true } });
+  const problem = roleChangeProblem({ actor: user, target, next: { role: nextRole, active: nextActive }, activeOwners });
+  if (problem) back("/settings", "error", problem);
+  if (nextRole === target.role && nextActive === target.active) back("/settings", "ok", "Nothing changed.");
+  await db.user.update({ where: { id: target.id }, data: { role: nextRole as typeof target.role, active: nextActive } });
+  const what = [
+    nextRole !== target.role ? `changed ${target.name} from ${roleLabel(target.role)} to ${roleLabel(nextRole)}` : "",
+    nextActive !== target.active ? `${nextActive ? "turned back on" : "turned off"} ${target.name}'s login` : "",
+  ].filter(Boolean).join(" and ");
+  await audit(user, nextActive !== target.active ? (nextActive ? "team.reactivated" : "team.deactivated") : "team.role_changed", `${user.name} ${what} at ${business.name}`, {
+    targetType: "User",
+    targetId: target.id,
+  });
+  back("/settings", "ok", `Done: ${what}.`);
 }
 
 /* ---------------- ordering from a price list ---------------- */
 
 export async function placePriceListOrder(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("order");
   const supplierId = str(fd, "supplierId");
   const path = `/suppliers/${supplierId}`;
   const supplier = await db.business.findFirst({
@@ -469,6 +503,7 @@ export async function placePriceListOrder(fd: FormData) {
       },
     },
   });
+  await audit(user, "order.placed", `${user.name} ordered ${poNo(order.number)} (₦${total.toLocaleString("en-NG")}) from ${supplier.name}'s price list for ${business.name}${approval ? ", sent for approval" : ""}`, { targetType: "PurchaseOrder", targetId: order.id });
   if (!approval) await notify(supplier.id, `New order ${poNo(order.number)} from ${business.name}`);
   revalidatePath("/", "layout");
   redirect(`/orders/${order.id}?ok=${encodeURIComponent(approval ? "Order sent to a manager for approval." : `Order sent to ${supplier.name}.`)}`);
@@ -502,7 +537,7 @@ async function readRecipeForm(fd: FormData, buyerId: string, path: string) {
 }
 
 export async function saveRecipe(fd: FormData) {
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("recipes");
   const id = str(fd, "recipeId");
   const path = id ? `/recipes/${id}` : "/recipes/new";
   const r = await readRecipeForm(fd, business.id, path);
@@ -525,7 +560,7 @@ export async function saveRecipe(fd: FormData) {
 }
 
 export async function deleteRecipe(fd: FormData) {
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("recipes");
   const id = str(fd, "recipeId");
   const own = await db.recipe.findFirst({ where: { id, buyerId: business.id } });
   if (!own) back("/recipes", "error", "That dish wasn't found.");
@@ -534,7 +569,7 @@ export async function deleteRecipe(fd: FormData) {
 }
 
 export async function recordDishSales(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("recipes");
   const path = "/recipes";
   const recipes = await db.recipe.findMany({ where: { buyerId: business.id }, include: { ingredients: true } });
   const sold = recipes.map((r) => ({ r, n: Math.round(num(fd, `sold_${r.id}`) || 0) })).filter((x) => x.n > 0);
@@ -577,7 +612,7 @@ export async function recordDishSales(fd: FormData) {
 /* ---------------- portion control ---------------- */
 
 export async function cutPortions(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("stock");
   const id = str(fd, "itemId");
   const path = `/stock/${id}`;
   const from = await db.stockItem.findFirst({ where: { id, buyerId: business.id }, include: { batches: { where: { quantity: { gt: 0 } } } } });

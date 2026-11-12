@@ -16,7 +16,7 @@ const GROUPS: [string, string[]][] = [
 
 export default async function Orders({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("view_orders");
   const orders = await db.purchaseOrder.findMany({
     where: { buyerId: business.id },
     include: { supplier: true, lines: true, payments: true, invoice: true },

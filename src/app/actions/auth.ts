@@ -2,6 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
+import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { back, str } from "@/lib/flash";
 import { isAdminEmail } from "@/lib/auth";
@@ -15,11 +16,17 @@ export async function login(fd: FormData) {
   const password = str(fd, "password");
   const user = await db.user.findUnique({ where: { email } });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    await audit(null, "auth.login_failed", `Failed sign-in for ${email}`, { businessId: user?.businessId ?? null, targetType: "User", targetId: user?.id });
     back("/login", "error", "That login and password don't match. Check them and try again.");
   }
-  if (isAdminEmail(email) && !user.isPlatformAdmin) {
-    await db.user.update({ where: { id: user.id }, data: { isPlatformAdmin: true } });
+  if (!user.active) {
+    await audit(user, "auth.login_blocked", `${user.name} (${email}) tried to sign in but their login is turned off`, { targetType: "User", targetId: user.id });
+    back("/login", "error", "Your login has been turned off. Ask your manager to turn it back on.");
   }
+  const promote = isAdminEmail(email) && !user.isPlatformAdmin;
+  await db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date(), ...(promote ? { isPlatformAdmin: true } : {}) } });
+  await audit(user, "auth.login", `${user.name} (${email}) signed in`, { targetType: "User", targetId: user.id });
+  if (promote) await audit(user, "admin.granted", `${user.name} (${email}) became a platform admin (listed in ADMIN_EMAILS)`, { targetType: "User", targetId: user.id });
   await createSession(user.id);
   redirect("/");
 }
@@ -69,6 +76,7 @@ export async function signup(fd: FormData) {
       },
     },
   });
+  await audit(user, "auth.signup", `${name} (${email}) signed up ${businessName} as a ${type === "SUPPLIER" ? "supplier" : "buyer"}`, { targetType: "Business", targetId: user.businessId ?? undefined });
   await createSession(user.id);
   redirect("/");
 }

@@ -68,11 +68,24 @@ Sample accounts after seeding all use the password `bertha-demo-2026`:
 | --- | --- |
 | Hotel owner | tobi@maitamagrove.test |
 | Hotel manager (approves) | amina@maitamagrove.test |
-| Hotel staff | kunle@maitamagrove.test |
+| Hotel staff (general) | kunle@maitamagrove.test |
+| Hotel procurement / kitchen / store keeper / accounts | procurement@, kitchen@, store@, accounts@maitamagrove.test |
 | Restaurant owner | ada@jabilakekitchen.test |
 | Supplier | ngozi@karuwholesale.test, musa@gwagfarms.test, ibrahim@kujepoultry.test |
 | Supplier waiting for checks | peter@bwarifarms.test |
 | Platform admin | admin@bertha.test |
+
+## Roles and the audit log
+
+People in a hotel or restaurant have a role: Owner, Manager, Procurement, Kitchen, Store keeper,
+Accounts or General staff. What each role can do is one table in `src/lib/roles.ts`. To protect a new
+page or server action, add a permission there and call `requireBuyer("permission")`; use `can(user, "...")`
+to hide buttons. Owners and managers change roles under Settings; platform admins can change anyone's
+role or turn a login off under Admin, People and roles.
+
+Important actions (sign-ins and failed sign-ins, team and role changes, orders, approvals, payments,
+approval-limit changes and every admin change) are written with `audit()` from `src/lib/audit.ts`
+and shown to platform admins at `/admin/audit`.
 
 ## Checks
 

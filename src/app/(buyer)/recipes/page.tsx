@@ -2,7 +2,7 @@ import Link from "next/link";
 import { recordDishSales } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
 import { Empty, PageHead, Pill } from "@/components/ui";
-import { requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { dateInput, naira, qty } from "@/lib/format";
 import { costedRecipes } from "@/lib/recipes";
@@ -12,7 +12,7 @@ export const metadata = { title: "Recipes" };
 
 export default async function Recipes({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { user, business } = await requireBuyer();
   const since = addDays(new Date(), -7);
   const [recipes, moves, soldWeek] = await Promise.all([
     costedRecipes(business.id),
@@ -38,7 +38,7 @@ export default async function Recipes({ searchParams }: { searchParams: Promise<
 
   return (
     <>
-      <PageHead title="Recipes" eyebrow="What each dish costs to make, and where your stock goes" action={<Link className="btn sec" href="/recipes/new">Add a dish</Link>} />
+      <PageHead title="Recipes" eyebrow="What each dish costs to make, and where your stock goes" action={can(user, "recipes") ? <Link className="btn sec" href="/recipes/new">Add a dish</Link> : null} />
       <Flash sp={sp} />
 
       {recipes.length === 0 ? (
@@ -67,7 +67,7 @@ export default async function Recipes({ searchParams }: { searchParams: Promise<
             <span className="btns" style={{ alignItems: "center" }}>
               <label className="k" htmlFor="soldOn">Sold on</label>
               <input type="date" name="soldOn" id="soldOn" defaultValue={dateInput(new Date())} max={dateInput(new Date())} style={{ width: 160 }} />
-              <button className="btn" type="submit">Record sales</button>
+              <button className="btn" type="submit" disabled={!can(user, "recipes")}>Record sales</button>
             </span>
           </div>
         </form>
