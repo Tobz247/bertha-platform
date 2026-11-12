@@ -6,6 +6,7 @@ import { PageHead, Pill } from "@/components/ui";
 import { requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day, naira, poNo, qty, rfqNo } from "@/lib/format";
+import { kitchenNo } from "@/lib/kitchen-rules";
 import { supplierRatings } from "@/lib/orders";
 import { lastPaidPrices, marketPrices } from "@/lib/prices";
 import { needsApproval, orderTotal, priceFlag, priceKey, quoteBadges } from "@/lib/rules";
@@ -30,6 +31,7 @@ export default async function RequestPage({
       quotes: { include: { supplier: true, lines: true }, orderBy: { createdAt: "asc" } },
       orders: true,
       createdBy: true,
+      kitchenRequest: true,
     },
   });
   if (!req) notFound();
@@ -59,7 +61,7 @@ export default async function RequestPage({
     <>
       <PageHead
         title={req.title}
-        eyebrow={<><span className="mono">{rfqNo(req.number)}</span> · {req.category.name} · raised by {req.createdBy.name}</>}
+        eyebrow={<><span className="mono">{rfqNo(req.number)}</span> · {req.category.name} · raised by {req.createdBy.name}{req.kitchenRequest ? <> · for <Link href={`/kitchen/${req.kitchenRequest.id}`}>{kitchenNo(req.kitchenRequest.number)}</Link></> : null}</>}
         backHref="/requests"
         backLabel="Requests"
         action={open ? <form action={cancelRequest}><input type="hidden" name="requestId" value={req.id} /><button className="btn sec small" type="submit">Cancel request</button></form> : null}

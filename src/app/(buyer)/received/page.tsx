@@ -46,7 +46,7 @@ export default async function Received({ searchParams }: { searchParams: Promise
           </div>
           <div className="card table-wrap" style={{ padding: 0 }}>
             <table className="list">
-              <thead><tr><th>Note</th><th>Supplier</th><th>Received by</th><th className="r">Value received</th><th className="r">Invoice</th><th>Payment</th></tr></thead>
+              <thead><tr><th>Note</th><th>Supplier</th><th>Received by</th><th className="r">Value received</th><th className="r">Invoice</th><th>Checked</th><th>Payment</th></tr></thead>
               <tbody>
                 {orders.map((o) => {
                   const pl = payLabel(o);
@@ -57,6 +57,7 @@ export default async function Received({ searchParams }: { searchParams: Promise
                       <td>{o.receivedBy?.name ?? <span className="k">—</span>}</td>
                       <td className="r t">{naira(o.received ?? 0)}</td>
                       <td className="r">{o.invoice ? <>{naira(o.invoice.amount)}{o.check && !o.check.matches ? <div><Pill tone="red">{o.check.difference > 0 ? "+" : "−"}{naira(Math.abs(o.check.difference))}</Pill></div> : null}</> : <span className="k">not yet</span>}</td>
+                      <td>{o.grnApprovedAt ? <Pill tone="green">Approved</Pill> : <Link href={`/orders/${o.id}#grn-check`}><Pill tone="amber">To approve</Pill></Link>}</td>
                       <td>{pl ? <Pill tone={pl.tone}>{pl.label}</Pill> : null}</td>
                     </tr>
                   );

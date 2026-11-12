@@ -17,7 +17,7 @@ export default async function Recipes({ searchParams }: { searchParams: Promise<
   const [recipes, moves, soldWeek] = await Promise.all([
     costedRecipes(business.id),
     db.stockMovement.findMany({
-      where: { item: { buyerId: business.id }, at: { gte: since }, type: { in: ["SOLD", "USED", "WASTED", "COUNT_ADJUST"] } },
+      where: { item: { buyerId: business.id }, at: { gte: since }, type: { in: ["SOLD", "USED", "ISSUED", "WASTED", "COUNT_ADJUST"] } },
       include: { item: true },
     }),
     db.dishSale.groupBy({ by: ["recipeId"], where: { recipe: { buyerId: business.id }, soldOn: { gte: since } }, _sum: { quantity: true } }),

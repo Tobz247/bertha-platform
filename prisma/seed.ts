@@ -19,6 +19,7 @@ async function main() {
   if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed in production");
 
   await db.$transaction([
+    db.kitchenRequest.deleteMany(),
     db.catalogPriceChange.deleteMany(), db.rateCard.deleteMany(), db.portionRun.deleteMany(), db.dishSale.deleteMany(), db.recipeIngredient.deleteMany(), db.recipe.deleteMany(), db.catalogItem.deleteMany(),
     db.stockMovement.deleteMany(), db.stockBatch.deleteMany(), db.stockItem.deleteMany(),
     db.rating.deleteMany(), db.payment.deleteMany(), db.invoice.deleteMany(), db.orderEvent.deleteMany(),
@@ -229,6 +230,24 @@ async function main() {
   await move("Plantain", "SOLD", -2.5, "Dishes sold: 25 × Fried plantain (side)", 2);
   await move("Tomatoes", "WASTED", -0.5, "Spoiled", 1);
   await move("Whole chicken (frozen)", "COUNT_ADJUST", -2.4, "Counted 18", 1);
+
+  // A kitchen request waiting for procurement: the store has some of it, the rest must be bought.
+  await db.kitchenRequest.create({
+    data: {
+      buyerId: hotel.id,
+      department: "Kitchen",
+      neededBy: day(1),
+      note: "Saturday wedding lunch, 120 guests",
+      raisedById: chef.id,
+      lines: {
+        create: [
+          { product: "Tomatoes", unit: "basket", quantity: 4, position: 0 },
+          { product: "Whole chicken (frozen)", unit: "kg", quantity: 30, position: 1 },
+          { product: "Onions", unit: "bag", quantity: 1, position: 2 },
+        ],
+      },
+    },
+  });
 
   console.log(`Seeded. Every account uses the password "${PASSWORD}".`);
 }
