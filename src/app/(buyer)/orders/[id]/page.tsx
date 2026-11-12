@@ -87,7 +87,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
             </form>
           ) : null}
 
-          {o.status === "RECEIVED" ? <GrnCheck o={o} canApprove={canApprove(user)} /> : null}
+          {o.status === "RECEIVED" ? <GrnCheck o={o} canApprove={can(user, "approve")} /> : null}
 
           {o.status === "RECEIVED" ? (
             <div className="card stack">

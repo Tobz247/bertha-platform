@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { canApprove, requireBuyer } from "@/lib/auth";
+import { audit } from "@/lib/audit";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { back, num, str } from "@/lib/flash";
 import { parseDateInput, poNo } from "@/lib/format";
@@ -12,7 +13,7 @@ import { round3, startOfDay, takeFromBatches } from "@/lib/rules";
 /* ---------------- kitchen raises a request ---------------- */
 
 export async function createKitchenRequest(fd: FormData) {
-  const { user, business } = await requireBuyer();
+  const { user, business } = await requireBuyer("kitchen_request");
   const path = "/kitchen/new";
   const department = str(fd, "department") || "Kitchen";
   const neededBy = str(fd, "neededBy");
@@ -54,7 +55,7 @@ export async function cancelKitchenRequest(fd: FormData) {
   const { user, kr } = await ownKitchenRequest(id);
   const path = `/kitchen/${id}`;
   if (kr.status !== "SUBMITTED") back(path, "error", "Only a request still waiting for review can be cancelled.");
-  if (kr.raisedById !== user.id && !canApprove(user)) back(path, "error", "Only the person who raised it, or a manager, can cancel it.");
+  if (kr.raisedById !== user.id && !can(user, "review_kitchen_request")) back(path, "error", "Only the person who raised it, or procurement, can cancel it.");
   await db.kitchenRequest.update({ where: { id }, data: { status: "CANCELLED" } });
   revalidatePath("/", "layout");
   back(path, "ok", "Request cancelled.");
@@ -66,7 +67,7 @@ export async function reviewKitchenRequest(fd: FormData) {
   const id = str(fd, "kitchenRequestId");
   const { user, kr } = await ownKitchenRequest(id);
   const path = `/kitchen/${id}`;
-  if (!canApprove(user)) back(path, "error", "Only an owner or manager can review kitchen requests.");
+  if (!can(user, "review_kitchen_request")) back(path, "error", "Your role can't review kitchen requests. Ask procurement or a manager.");
   if (kr.status !== "SUBMITTED") back(path, "error", "This request has already been reviewed.");
   const approve = str(fd, "decision") === "approve";
   const note = str(fd, "reviewNote") || null;
@@ -74,6 +75,7 @@ export async function reviewKitchenRequest(fd: FormData) {
   if (!approve) {
     if (!note) back(path, "error", "Say why the request isn't approved, so the kitchen knows.");
     await db.kitchenRequest.update({ where: { id }, data: { status: "REJECTED", reviewedById: user.id, reviewedAt: new Date(), reviewNote: note } });
+    await audit(user, "kitchen.not_approved", `${user.name} did not approve ${kitchenNo(kr.number)} (${kr.department}): ${note}`, { targetType: "KitchenRequest", targetId: id });
     revalidatePath("/", "layout");
     back(path, "ok", "Request not approved. The kitchen can see your note.");
   }
@@ -87,6 +89,7 @@ export async function reviewKitchenRequest(fd: FormData) {
     ...approved.map((a) => db.kitchenRequestLine.update({ where: { id: a.id }, data: { approvedQty: a.approvedQty } })),
     db.kitchenRequest.update({ where: { id }, data: { status: "APPROVED", reviewedById: user.id, reviewedAt: new Date(), reviewNote: note } }),
   ]);
+  await audit(user, "kitchen.approved", `${user.name} approved ${kitchenNo(kr.number)} (${kr.department}, ${approved.filter((a) => a.approvedQty > 0).length} items)`, { targetType: "KitchenRequest", targetId: id });
   revalidatePath("/", "layout");
   back(path, "ok", "Approved. Issue what's in the store, and send the rest to suppliers.");
 }
@@ -97,6 +100,7 @@ export async function issueFromStore(fd: FormData) {
   const id = str(fd, "kitchenRequestId");
   const { user, business, kr } = await ownKitchenRequest(id);
   const path = `/kitchen/${id}`;
+  if (!can(user, "stock")) back(path, "error", "Only the store (store keeper, manager or owner) can issue goods.");
   if (kr.status !== "APPROVED") back(path, "error", "Goods can be issued once procurement has approved the request.");
   const collectedBy = str(fd, "collectedBy");
 
@@ -144,6 +148,7 @@ export async function issueFromStore(fd: FormData) {
     });
     if (issueProgress(after) === "all") await tx.kitchenRequest.update({ where: { id }, data: { status: "FULFILLED" } });
   });
+  await audit(user, "stock.issued", `${user.name} issued ${plan.map((p) => `${p.q} ${p.l.unit} ${p.l.product}`).join(", ")} to ${kr.department} on ${kitchenNo(kr.number)}`.slice(0, 500), { targetType: "KitchenRequest", targetId: id });
   revalidatePath("/", "layout");
   back(path, "ok", `Issued ${plan.length} item${plan.length > 1 ? "s" : ""} to ${kr.department}. Stock has gone down by those amounts.`);
 }
@@ -152,7 +157,7 @@ export async function closeKitchenRequest(fd: FormData) {
   const id = str(fd, "kitchenRequestId");
   const { user, kr } = await ownKitchenRequest(id);
   const path = `/kitchen/${id}`;
-  if (!canApprove(user)) back(path, "error", "Only an owner or manager can close a request.");
+  if (!can(user, "review_kitchen_request")) back(path, "error", "Only procurement or a manager can close a request.");
   if (kr.status !== "APPROVED") back(path, "error", "Only an approved request can be closed.");
   await db.kitchenRequest.update({ where: { id }, data: { status: "FULFILLED", reviewNote: [kr.reviewNote, str(fd, "closeNote") ? `Closed: ${str(fd, "closeNote")}` : "Closed before everything was issued"].filter(Boolean).join(" · ") } });
   revalidatePath("/", "layout");
@@ -165,7 +170,7 @@ export async function approveGoodsReceived(fd: FormData) {
   const { user, business } = await requireBuyer();
   const id = str(fd, "orderId");
   const path = `/orders/${id}`;
-  if (!canApprove(user)) back(path, "error", "Only an owner or manager can approve a goods received note.");
+  if (!can(user, "approve")) back(path, "error", "Only an owner or manager can approve a goods received note.");
   const order = await db.purchaseOrder.findFirst({ where: { id, buyerId: business.id } });
   if (!order) back("/orders", "error", "That order wasn't found.");
   if (order.status !== "RECEIVED") back(path, "error", "Record the goods received first.");
@@ -180,6 +185,7 @@ export async function approveGoodsReceived(fd: FormData) {
       events: { create: { actorId: user.id, message: `Goods received note checked and approved${note ? `: ${note}` : ""}` } },
     },
   });
+  await audit(user, "order.grn_approved", `${user.name} approved the goods received note for ${poNo(order.number)} at ${business.name}${note ? `: ${note}` : ""}`, { targetType: "PurchaseOrder", targetId: id });
   revalidatePath("/", "layout");
   back(path, "ok", `${poNo(order.number)} goods received note approved. It now shows as checked for accounts.`);
 }

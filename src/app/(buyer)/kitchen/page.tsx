@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Flash } from "@/components/Flash";
 import { Empty, PageHead, Pill } from "@/components/ui";
-import { requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { day } from "@/lib/format";
 import { KITCHEN_STATUS } from "@/lib/kitchen";
@@ -16,7 +16,7 @@ const TABS = [
 
 export default async function KitchenRequests({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { user, business } = await requireBuyer();
   const tab = TABS.find((t) => t.key === sp.show) ?? TABS[0];
   const list = await db.kitchenRequest.findMany({
     where: { buyerId: business.id, ...tab.where },
@@ -29,13 +29,13 @@ export default async function KitchenRequests({ searchParams }: { searchParams: 
       <PageHead
         title="Kitchen requests"
         eyebrow="The kitchen asks, procurement reviews, the store issues or buys"
-        action={<Link className="btn" href="/kitchen/new">New kitchen request</Link>}
+        action={can(user, "kitchen_request") ? <Link className="btn" href="/kitchen/new">New kitchen request</Link> : null}
       />
       <Flash sp={sp} />
       <div className="btns" style={{ marginBottom: 14 }}>
         {TABS.map((t) => <Link key={t.key} className={`btn small ${t.key === tab.key ? "" : "sec"}`} href={`/kitchen?show=${t.key}`}>{t.label}</Link>)}
       </div>
-      {list.length === 0 ? <Empty>{tab.key === "open" ? "No open kitchen requests." : "No kitchen requests yet."} <Link href="/kitchen/new">Raise one</Link>.</Empty> : null}
+      {list.length === 0 ? <Empty>{tab.key === "open" ? "No open kitchen requests." : "No kitchen requests yet."} {can(user, "kitchen_request") ? <Link href="/kitchen/new">Raise one</Link> : null}</Empty> : null}
       <div className="stack">
         {list.map((k) => {
           const s = KITCHEN_STATUS[k.status];

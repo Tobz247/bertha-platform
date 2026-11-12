@@ -12,7 +12,7 @@ export const metadata = { title: "New kitchen request" };
 
 export default async function NewKitchenRequest({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
-  const { business } = await requireBuyer();
+  const { business } = await requireBuyer("kitchen_request");
   const [stock, categories] = await Promise.all([stockOverview(business.id), db.category.findMany({ select: { units: true } })]);
   const units = Array.from(new Set([...stock.map((s) => s.unit), ...categories.flatMap((c) => c.units.split(",").map((u) => u.trim()))].filter(Boolean)));
   return (

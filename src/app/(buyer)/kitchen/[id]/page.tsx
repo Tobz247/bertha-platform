@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { cancelKitchenRequest, closeKitchenRequest, issueFromStore, reviewKitchenRequest } from "@/app/actions/kitchen";
 import { Flash } from "@/components/Flash";
 import { OrderStatusPill, PageHead, Pill } from "@/components/ui";
-import { canApprove, requireBuyer } from "@/lib/auth";
+import { can, requireBuyer } from "@/lib/auth";
 import { day, poNo, qty, rfqNo } from "@/lib/format";
 import { KITCHEN_STATUS, loadKitchenRequest, stockByKey } from "@/lib/kitchen";
 import { approvedOf, issueProgress, itemKey, kitchenNo, linePlan } from "@/lib/kitchen-rules";
@@ -15,7 +15,9 @@ export default async function KitchenRequestPage({ params, searchParams }: { par
   const { user, business } = await requireBuyer();
   const [k, stock] = await Promise.all([loadKitchenRequest(id, business.id), stockByKey(business.id)]);
   if (!k) notFound();
-  const manager = canApprove(user);
+  const reviewer = can(user, "review_kitchen_request");
+  const store = can(user, "stock");
+  const buyer = can(user, "requests");
   const s = KITCHEN_STATUS[k.status];
   const reviewed = k.status !== "SUBMITTED";
   const rows = k.lines.map((l) => {
@@ -69,7 +71,7 @@ export default async function KitchenRequestPage({ params, searchParams }: { par
             </table>
           </div>
 
-          {k.status === "SUBMITTED" && manager ? (
+          {k.status === "SUBMITTED" && reviewer ? (
             <form action={reviewKitchenRequest} className="card stack">
               <input type="hidden" name="kitchenRequestId" value={k.id} />
               <h2>Review</h2>
@@ -86,11 +88,11 @@ export default async function KitchenRequestPage({ params, searchParams }: { par
               </div>
             </form>
           ) : null}
-          {k.status === "SUBMITTED" && !manager ? <div className="alert info">Waiting for procurement (an owner or manager) to review this request.</div> : null}
+          {k.status === "SUBMITTED" && !reviewer ? <div className="alert info">Waiting for procurement to review this request.</div> : null}
           {k.status === "REJECTED" ? <div className="alert error">Not approved{k.reviewedBy ? ` by ${k.reviewedBy.name}` : ""}.{k.reviewNote ? ` “${k.reviewNote}”` : ""}</div> : null}
           {k.status === "APPROVED" && k.reviewNote ? <div className="alert info">Approved by {k.reviewedBy?.name}: “{k.reviewNote}”</div> : null}
 
-          {k.status === "APPROVED" && canIssue.length ? (
+          {k.status === "APPROVED" && store && canIssue.length ? (
             <form action={issueFromStore} className="card stack" id="issue">
               <input type="hidden" name="kitchenRequestId" value={k.id} />
               <h2>Issue from the store</h2>
@@ -108,15 +110,17 @@ export default async function KitchenRequestPage({ params, searchParams }: { par
             </form>
           ) : null}
 
+          {k.status === "APPROVED" && !store && canIssue.length ? <div className="alert info">The store can issue {canIssue.length} item{canIssue.length > 1 ? "s" : ""} now.</div> : null}
+
           {k.status === "APPROVED" && toBuy.length ? (
             <div className="card stack">
               <h2>Not enough in the store</h2>
               <p className="k" style={{ margin: 0 }}>{toBuy.map((r) => `${qty(r.plan.toBuy)} ${r.l.unit} ${r.l.product}`).join(", ")}. Send these to suppliers for quotes. When the goods arrive, check them in on the order and then issue them here.</p>
-              {manager ? <div><Link className="btn" href={buyHref}>Send to suppliers</Link></div> : <div className="k">An owner or manager sends requests to suppliers.</div>}
+              {buyer ? <div><Link className="btn" href={buyHref}>Send to suppliers</Link></div> : <div className="k">Procurement sends these to suppliers.</div>}
             </div>
           ) : null}
 
-          {k.status === "APPROVED" && manager ? (
+          {k.status === "APPROVED" && reviewer ? (
             <form action={closeKitchenRequest} className="btns" style={{ alignItems: "flex-end" }}>
               <input type="hidden" name="kitchenRequestId" value={k.id} />
               <label className="f" style={{ minWidth: 220 }}>Close without issuing the rest <span className="hint">optional reason</span><input type="text" name="closeNote" id="closeNote" /></label>
@@ -124,7 +128,7 @@ export default async function KitchenRequestPage({ params, searchParams }: { par
             </form>
           ) : null}
 
-          {k.status === "SUBMITTED" && (k.raisedById === user.id || manager) ? (
+          {k.status === "SUBMITTED" && (k.raisedById === user.id || reviewer) ? (
             <form action={cancelKitchenRequest}>
               <input type="hidden" name="kitchenRequestId" value={k.id} />
               <button className="btn sec small" type="submit">Cancel this request</button>
