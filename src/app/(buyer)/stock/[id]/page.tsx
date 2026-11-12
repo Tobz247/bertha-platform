@@ -10,7 +10,7 @@ import { expiringBatches, isKg, isLow, portionResult, stockOnHand } from "@/lib/
 
 export const metadata = { title: "Stock item" };
 
-const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count", SOLD: "Dishes sold", PORTIONED: "Portioning" };
+const MOVE_LABEL: Record<string, string> = { RECEIVED: "Received", ADDED: "Added", USED: "Used", WASTED: "Wasted", COUNT_ADJUST: "Count", SOLD: "Dishes sold", PORTIONED: "Portioning", ISSUED: "Issued from store" };
 
 export default async function StockItemPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
@@ -20,7 +20,7 @@ export default async function StockItemPage({ params, searchParams }: { params: 
     where: { id, buyerId: business.id },
     include: {
       batches: { where: { quantity: { gt: 0 } }, orderBy: [{ expiresAt: "asc" }, { receivedAt: "asc" }] },
-      movements: { orderBy: { at: "desc" }, take: 40, include: { user: true, order: true } },
+      movements: { orderBy: { at: "desc" }, take: 40, include: { user: true, order: true, kitchenRequest: true } },
       cutFrom: { orderBy: { at: "desc" }, take: 20, include: { toItem: true, user: true } },
       cutInto: { orderBy: { at: "desc" }, take: 20, include: { fromItem: true, user: true } },
     },
@@ -147,7 +147,7 @@ export default async function StockItemPage({ params, searchParams }: { params: 
               <tbody>
                 {item.movements.map((m) => (
                   <tr key={m.id}>
-                    <td>{MOVE_LABEL[m.type]}{m.reason ? <span className="k"> · {m.reason}</span> : null}{m.order ? <> · <Link className="mono" href={`/orders/${m.order.id}`}>{poNo(m.order.number)}</Link></> : null}<div className="k">{day(m.at)} · {m.user.name}</div></td>
+                    <td>{MOVE_LABEL[m.type]}{m.reason ? <span className="k"> · {m.reason}</span> : null}{m.order ? <> · <Link className="mono" href={`/orders/${m.order.id}`}>{poNo(m.order.number)}</Link></> : null}{m.kitchenRequest ? <> · <Link href={`/kitchen/${m.kitchenRequest.id}`}>view request</Link></> : null}<div className="k">{day(m.at)} · {m.user.name}</div></td>
                     <td className="r" style={{ color: m.quantity < 0 ? "var(--red)" : undefined }}>{m.quantity > 0 ? "+" : ""}{qty(m.quantity)}</td>
                   </tr>
                 ))}

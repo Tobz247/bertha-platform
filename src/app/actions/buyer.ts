@@ -33,8 +33,12 @@ export async function createRequest(fd: FormData) {
   const lines = products
     .map((p, i) => ({ product: p.trim(), quantity: quantities[i], unit: (units[i] ?? "").trim() }))
     .filter((l) => l.product);
+  const kitchenRequestId = str(fd, "kitchenRequestId") || null;
 
-  const fail = (m: string) => back("/requests/new", "error", m);
+  const fail = (m: string) => back(kitchenRequestId ? `/requests/new?kitchen=${kitchenRequestId}` : "/requests/new", "error", m);
+  if (kitchenRequestId && !(await db.kitchenRequest.findFirst({ where: { id: kitchenRequestId, buyerId: business.id, status: "APPROVED" } }))) {
+    fail("That kitchen request isn't approved, so it can't be sent to suppliers.");
+  }
   if (!title) fail("Give the request a name, such as “Weekend vegetables”.");
   if (!categoryId) fail("Choose a category so the right suppliers see it.");
   if (!neededBy) fail("Say when you need the goods.");
@@ -57,6 +61,7 @@ export async function createRequest(fd: FormData) {
       audience,
       notes: str(fd, "notes") || null,
       createdById: user.id,
+      kitchenRequestId,
       lines: { create: lines.map((l, i) => ({ ...l, position: i })) },
       invites: audience === "SHORTLIST" ? { create: shortlist.map((supplierId) => ({ supplierId })) } : undefined,
     },

@@ -2,11 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cancelOrder, decideApproval, rateOrder, receiveOrder, recordPayment } from "@/app/actions/buyer";
 import { Flash } from "@/components/Flash";
+import { GrnCheck } from "@/components/GrnCheck";
 import { OrderEvents, OrderLines, PaymentSummary } from "@/components/OrderParts";
 import { OrderStatusPill, PageHead, Pill } from "@/components/ui";
 import { can, requireBuyer } from "@/lib/auth";
 import { dateInput, day, naira, poNo, qty, rfqNo } from "@/lib/format";
-import { loadOrder, payLabel } from "@/lib/orders";
+import { kitchenNo } from "@/lib/kitchen-rules";
+import { loadOrder, payLabel, requestedFor } from "@/lib/orders";
 import { addDays } from "@/lib/rules";
 
 export const metadata = { title: "Order" };
@@ -61,10 +63,10 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
             <form action={receiveOrder} className="card stack" id="receive">
               <input type="hidden" name="orderId" value={o.id} />
               <h2>Record goods received</h2>
-              <p className="k" style={{ margin: 0 }}>Count what arrived. Stock goes up by these amounts, and the supplier&apos;s invoice is checked against them.</p>
+              <p className="k" style={{ margin: 0 }}>Count what arrived. Stock goes up by these amounts, and the supplier&apos;s invoice is checked against them.{o.request?.kitchenRequest ? <> These goods are for kitchen request <Link href={`/kitchen/${o.request.kitchenRequest.id}`}>{kitchenNo(o.request.kitchenRequest.number)}</Link>; after you confirm, issue them to the {o.request.kitchenRequest.department.toLowerCase()} from there.</> : null}</p>
               {o.lines.map((l) => (
                 <fieldset key={l.id}>
-                  <legend>{l.product} · ordered {qty(l.quantity)} {l.unit}</legend>
+                  <legend>{l.product} · ordered {qty(l.quantity)} {l.unit}{o.requested ? (requestedFor(o, l) != null ? ` · kitchen asked for ${qty(requestedFor(o, l)!)}` : " · not on the kitchen request") : ""}</legend>
                   <div className="fields">
                     <label className="f">Received ({l.unit})<input type="number" name={`rec_${l.id}`} id={`rec_${l.id}`} defaultValue={l.quantity} min="0" step="any" /></label>
                     <label className="f">Problem
@@ -84,6 +86,8 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
               <div><button className="btn" type="submit">Confirm and update stock</button></div>
             </form>
           ) : null}
+
+          {o.status === "RECEIVED" ? <GrnCheck o={o} canApprove={canApprove(user)} /> : null}
 
           {o.status === "RECEIVED" ? (
             <div className="card stack">

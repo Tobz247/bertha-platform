@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "./db";
+import { approvedOf, itemKey } from "./kitchen-rules";
 import { invoiceCheck, orderTotal, paymentState, receivedTotal } from "./rules";
 
 export async function loadOrder(id: string) {
@@ -15,8 +16,9 @@ export async function loadOrder(id: string) {
       createdBy: true,
       approvedBy: true,
       receivedBy: true,
+      grnApprovedBy: true,
       rating: true,
-      request: true,
+      request: { include: { kitchenRequest: { include: { lines: true } } } },
     },
   });
   if (!o) return null;
@@ -26,7 +28,26 @@ export async function loadOrder(id: string) {
   const amountDue = o.invoice ? o.invoice.amount : received ?? total;
   const pay = paymentState({ receivedAt: o.receivedAt, paymentTermsDays: o.paymentTermsDays, amountDue, paid });
   const check = o.invoice && received != null ? invoiceCheck(o.invoice.amount, received) : null;
-  return { ...o, total, received, paid, amountDue, pay, check };
+  return { ...o, total, received, paid, amountDue, pay, check, requested: requestedQty(o.request?.kitchenRequest?.lines ?? null) };
+}
+
+/**
+ * When an order came from a kitchen request, what the kitchen asked for per item (approved quantity),
+ * keyed by item name and unit. Null when the order isn't linked to a kitchen request.
+ */
+function requestedQty(lines: { product: string; unit: string; quantity: number; approvedQty: number | null }[] | null) {
+  if (!lines) return null;
+  const m: Record<string, number> = {};
+  for (const l of lines) {
+    const k = itemKey(l.product, l.unit);
+    m[k] = (m[k] ?? 0) + approvedOf(l);
+  }
+  return m;
+}
+
+/** What the kitchen asked for of one order line, or null when not on (or not from) a kitchen request. */
+export function requestedFor(o: { requested: Record<string, number> | null }, l: { product: string; unit: string }) {
+  return o.requested?.[itemKey(l.product, l.unit)] ?? null;
 }
 
 export type LoadedOrder = NonNullable<Awaited<ReturnType<typeof loadOrder>>>;

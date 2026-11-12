@@ -27,6 +27,13 @@ and keep their stock up to date from what arrives.
   them by date and prints them all at once
 - Portion control: cut bulk meat, chicken or fish into counted, weighed pieces; Bertha adds a "pieces" stock
   item and shows cost per piece, average piece weight and yield
+- Kitchen requests: the kitchen (or bar, pastry, banquet...) asks the store for items; an owner or manager
+  reviews and approves (or trims) the quantities; the store issues what it has, which takes it out of stock
+  (oldest batch first), and the rest goes to suppliers as a request for quotes linked to the kitchen request.
+  When those goods arrive the order page shows what the kitchen asked for, and they can then be issued
+- Goods received check: after a delivery is counted, each line is matched against the order (short, over,
+  not on the kitchen request) and an owner or manager approves the goods received note, which prints with
+  their name in "Checked and approved by"
 - Recipes: dishes built from stock items, cost per plate and food cost % (flagged above 35%); recording
   dishes sold takes the ingredients out of stock, and a weekly view shows sold vs other use, waste and
   shortfalls found in stock counts

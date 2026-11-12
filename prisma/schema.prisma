@@ -65,6 +65,7 @@ model Business {
   recipes        Recipe[]
   portionRuns    PortionRun[]
   auditEntries   AuditLog[]
+  kitchenRequests KitchenRequest[]
 }
 
 model User {
@@ -91,6 +92,9 @@ model User {
   events          OrderEvent[]
   dishSales       DishSale[]
   auditEntries    AuditLog[]
+  kitchenRaised   KitchenRequest[] @relation("KitchenRaiser")
+  kitchenReviewed KitchenRequest[] @relation("KitchenReviewer")
+  grnsApproved    PurchaseOrder[]  @relation("GrnApprover")
 }
 
 model Category {
@@ -131,6 +135,8 @@ model Request {
   createdById     String
   createdBy       User            @relation("RequestCreator", fields: [createdById], references: [id])
   createdAt       DateTime        @default(now())
+  kitchenRequestId String?
+  kitchenRequest   KitchenRequest? @relation(fields: [kitchenRequestId], references: [id])
 
   lines   RequestLine[]
   invites RequestInvite[]
@@ -234,6 +240,11 @@ model PurchaseOrder {
   receivedAt       DateTime?
   receivedById     String?
   receivedBy       User?       @relation("OrderReceiver", fields: [receivedById], references: [id])
+  // goods received note checked against the request and approved
+  grnApprovedById  String?
+  grnApprovedBy    User?       @relation("GrnApprover", fields: [grnApprovedById], references: [id])
+  grnApprovedAt    DateTime?
+  grnNote          String?
   createdAt        DateTime    @default(now())
 
   lines     OrderLine[]
@@ -356,6 +367,7 @@ enum MovementType {
   COUNT_ADJUST
   SOLD // taken out by dishes sold (from recipes)
   PORTIONED // bulk taken out (-) or pieces added (+) when cutting into portions
+  ISSUED // given out from the store to the kitchen (or another section) against a kitchen request
 }
 
 model StockMovement {
@@ -369,6 +381,8 @@ model StockMovement {
   user     User           @relation(fields: [userId], references: [id])
   orderId  String?
   order    PurchaseOrder? @relation(fields: [orderId], references: [id])
+  kitchenRequestId String?
+  kitchenRequest   KitchenRequest? @relation(fields: [kitchenRequestId], references: [id])
   at       DateTime       @default(now())
 }
 
@@ -483,4 +497,55 @@ model AuditLog {
   @@index([at])
   @@index([businessId, at])
   @@index([action, at])
+}
+
+/**
+ * ---------------- kitchen requests (store requisitions) ----------------
+ */
+
+enum KitchenRequestStatus {
+  SUBMITTED // raised by the kitchen, waiting for procurement to review
+  APPROVED // reviewed: issue from the store and/or send to suppliers
+  REJECTED
+  FULFILLED // everything approved has been issued
+  CANCELLED
+}
+
+/**
+ * The kitchen (or bar, pastry...) asks the store for items. Procurement reviews it,
+ * issues what is in stock and sends the rest to suppliers as requests for quotes.
+ */
+model KitchenRequest {
+  id           String               @id @default(cuid())
+  number       Int                  @unique @default(autoincrement())
+  buyerId      String
+  buyer        Business             @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  department   String               @default("Kitchen")
+  neededBy     DateTime
+  note         String?
+  status       KitchenRequestStatus @default(SUBMITTED)
+  raisedById   String
+  raisedBy     User                 @relation("KitchenRaiser", fields: [raisedById], references: [id])
+  reviewedById String?
+  reviewedBy   User?                @relation("KitchenReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime             @default(now())
+
+  lines     KitchenRequestLine[]
+  rfqs      Request[]
+  movements StockMovement[]
+}
+
+model KitchenRequestLine {
+  id               String         @id @default(cuid())
+  kitchenRequestId String
+  kitchenRequest   KitchenRequest @relation(fields: [kitchenRequestId], references: [id], onDelete: Cascade)
+  product          String
+  unit             String
+  quantity         Float // what the kitchen asked for
+  approvedQty      Float? // set by procurement on review
+  issuedQty        Float          @default(0) // given out from the store so far
+  note             String?
+  position         Int            @default(0)
 }

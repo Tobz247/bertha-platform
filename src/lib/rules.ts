@@ -221,7 +221,7 @@ export function usageBreakdown(movements: { type: string; quantity: number }[]) 
   const out = { sold: 0, used: 0, wasted: 0, unexplained: 0 };
   for (const m of movements) {
     if (m.type === "SOLD") out.sold += -m.quantity;
-    else if (m.type === "USED") out.used += -m.quantity;
+    else if (m.type === "USED" || m.type === "ISSUED") out.used += -m.quantity;
     else if (m.type === "WASTED") out.wasted += -m.quantity;
     else if (m.type === "COUNT_ADJUST") out.unexplained += -m.quantity;
   }

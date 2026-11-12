@@ -1,4 +1,5 @@
-import type { LoadedOrder } from "@/lib/orders";
+import { requestedFor, type LoadedOrder } from "@/lib/orders";
+import { kitchenNo } from "@/lib/kitchen-rules";
 import { day, naira, poNo, qty } from "@/lib/format";
 import { grnNo } from "@/lib/rules";
 
@@ -7,6 +8,7 @@ export function GoodsReceivedNote({ o }: { o: LoadedOrder & { receivedBy: { name
   const goods = o.lines.reduce((s, l) => s + Math.round((l.receivedQty ?? 0) * l.unitPrice), 0);
   const total = (o.received ?? goods + o.deliveryFee);
   const diff = o.invoice ? o.invoice.amount - total : 0;
+  const span = o.requested ? 7 : 6;
   return (
     <article className="paper">
       <div className="head">
@@ -21,12 +23,13 @@ export function GoodsReceivedNote({ o }: { o: LoadedOrder & { receivedBy: { name
         <div><span>Supplier</span>{o.supplier.name}<br />{o.supplier.phone}</div>
         <div><span>Purchase order</span>{poNo(o.number)} · {day(o.createdAt)}</div>
         <div><span>Supplier invoice</span>{o.invoice ? `${o.invoice.number} · ${naira(o.invoice.amount)}` : "Not received yet"}</div>
+        {o.request?.kitchenRequest ? <div><span>For request</span>{kitchenNo(o.request.kitchenRequest.number)} · {o.request.kitchenRequest.department}</div> : null}
         <div><span>Payment terms</span>{o.paymentTermsDays ? `${o.paymentTermsDays} days after delivery` : "On delivery (cash or transfer)"}</div>
       </div>
       <div className="paper-table">
         <table>
           <thead>
-            <tr><th>#</th><th>Item</th><th className="r">Ordered</th><th className="r">Received</th><th>Unit</th><th className="r">Unit price</th><th className="r">Value received</th><th>Remarks</th></tr>
+            <tr><th>#</th><th>Item</th>{o.requested ? <th className="r">Requested</th> : null}<th className="r">Ordered</th><th className="r">Received</th><th>Unit</th><th className="r">Unit price</th><th className="r">Value received</th><th>Remarks</th></tr>
           </thead>
           <tbody>
             {o.lines.map((l, i) => {
@@ -35,6 +38,7 @@ export function GoodsReceivedNote({ o }: { o: LoadedOrder & { receivedBy: { name
                 <tr key={l.id}>
                   <td>{i + 1}</td>
                   <td>{l.product}</td>
+                  {o.requested ? <td className="r">{requestedFor(o, l) != null ? qty(requestedFor(o, l)!) : "—"}</td> : null}
                   <td className="r">{qty(l.quantity)}</td>
                   <td className={`r ${rec < l.quantity ? "short" : ""}`}>{qty(rec)}</td>
                   <td>{l.unit}</td>
@@ -46,9 +50,9 @@ export function GoodsReceivedNote({ o }: { o: LoadedOrder & { receivedBy: { name
             })}
           </tbody>
           <tfoot>
-            <tr><td colSpan={6}>Goods</td><td className="r">{naira(goods)}</td><td /></tr>
-            <tr><td colSpan={6}>Delivery</td><td className="r">{naira(o.deliveryFee)}</td><td /></tr>
-            <tr><td colSpan={6}>Total value received</td><td className="r">{naira(total)}</td><td /></tr>
+            <tr><td colSpan={span}>Goods</td><td className="r">{naira(goods)}</td><td /></tr>
+            <tr><td colSpan={span}>Delivery</td><td className="r">{naira(o.deliveryFee)}</td><td /></tr>
+            <tr><td colSpan={span}>Total value received</td><td className="r">{naira(total)}</td><td /></tr>
           </tfoot>
         </table>
       </div>
@@ -57,7 +61,7 @@ export function GoodsReceivedNote({ o }: { o: LoadedOrder & { receivedBy: { name
       ) : null}
       <div className="signs">
         <div><b>Received by (store)</b>{o.receivedBy?.name ?? ""}</div>
-        <div><b>Checked by</b>Name and signature</div>
+        <div><b>Checked and approved by</b>{o.grnApprovedAt ? `${o.grnApprovedBy?.name ?? ""}, ${day(o.grnApprovedAt)}` : "Name and signature"}</div>
         <div><b>Accounts</b>Name and signature</div>
       </div>
     </article>
